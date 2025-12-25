@@ -148,19 +148,6 @@ mixin {
     debug.export = true
 }
 
-// Copy refmap to resources directory for development runs
-task copyRefmap(type: Copy) {
-    dependsOn compileJava
-    from "build/tmp/compileJava/${mod_id}.refmap.json"
-    into "build/resources/main"
-    onlyIf { !file("build/resources/main/${mod_id}.refmap.json").exists() }
-}
-
-// Make sure refmap is copied before classes are assembled
-tasks.named('classes').configure {
-    dependsOn copyRefmap
-}
-
 tasks.named('processResources', ProcessResources).configure {
     var replaceProperties = [
             minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
