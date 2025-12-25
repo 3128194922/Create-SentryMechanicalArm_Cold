@@ -375,8 +375,6 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         if (fp != null) {
             return fp.getEyePosition();
         }
-
-        // Fallback: calculate from block position with VS support
         Vec3 basePos = this.worldPosition.getCenter().add(0, 1.5, 0);
         return VSCompat.transformShipToWorld(this.level, this.worldPosition, basePos);
     }
@@ -513,10 +511,8 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         Vec3 armPos = this.getActualMuzzlePos();
 
         float height = target.getBbHeight();
-        // Entity position is already in world coordinates
         Vec3 basePos = target.position();
 
-        // Try different height positions from best to worst
         Vec3 headPos = basePos.add(0, height * 0.90, 0);
         if (isPointVisible(armPos, headPos)) return headPos;
 
