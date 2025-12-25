@@ -41,6 +41,9 @@ import net.minecraft.world.phys.*;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.items.IItemHandler;
 import org.slf4j.Logger;
+import org.valkyrienskies.core.api.ships.LoadedShip;
+import org.valkyrienskies.mod.common.VSGameUtilsKt;
+import org.valkyrienskies.mod.common.util.VectorConversionsMCKt;
 
 import java.util.*;
 
@@ -505,12 +508,14 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     }
 
     private Vec3 getBestTargetPos(LivingEntity target) {
- 
+
         Vec3 armPos = this.getActualMuzzlePos();
 
         float height = target.getBbHeight();
+        // Entity position is already in world coordinates
         Vec3 basePos = target.position();
 
+        // Try different height positions from best to worst
         Vec3 headPos = basePos.add(0, height * 0.90, 0);
         if (isPointVisible(armPos, headPos)) return headPos;
 
@@ -520,11 +525,11 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         Vec3 legPos = basePos.add(0, height * 0.25, 0);
         if (isPointVisible(armPos, legPos)) return legPos;
 
- 
+
         Vec3 feetPos = basePos.add(0, height * 0.1, 0);
         if (isPointVisible(armPos, feetPos)) return feetPos;
 
- 
+
         return null;
     }
 
@@ -1008,9 +1013,26 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         double originX = this.worldPosition.getX() + 0.5;
         double originZ = this.worldPosition.getZ() + 0.5;
 
-        double diffX = targetPos.x - originX;
-        double diffY = targetPos.y - finalOriginY;
-        double diffZ = targetPos.z - originZ;
+        // Valkyrien Skies integration: If arm is on a ship, transform arm position to world coordinates
+        Vec3 armPosWorld;
+        LoadedShip armShip = VSGameUtilsKt.getShipObjectManagingPos(level, this.worldPosition);
+        if (armShip != null) {
+            // Arm is on a ship, transform from ship space to world space
+            armPosWorld = VectorConversionsMCKt.toMinecraft(
+                armShip.getTransform().getShipToWorld().transformPosition(
+                    VectorConversionsMCKt.toJOML(new Vec3(originX, finalOriginY, originZ))
+                )
+            );
+        } else {
+            // Arm is not on a ship, use position as-is
+            armPosWorld = new Vec3(originX, finalOriginY, originZ);
+        }
+
+        // Target position is already in world coordinates
+        // Calculate angle in world space
+        double diffX = targetPos.x - armPosWorld.x;
+        double diffY = targetPos.y - armPosWorld.y;
+        double diffZ = targetPos.z - armPosWorld.z;
 
         float yaw = (float) (Mth.atan2(diffZ, diffX) * (180D / Math.PI)) - 90.0F;
         double distHorizontal = Math.sqrt(diffX * diffX + diffZ * diffZ);

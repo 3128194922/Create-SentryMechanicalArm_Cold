@@ -71,6 +71,11 @@ minecraft {
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
+    mavenCentral() // 置顶，优先从中央仓库下载
+    maven {
+        name = "SpongePowered"
+        url = "https://repo.spongepowered.org/repository/maven-public/"
+    }
     maven {
         name = "Progwml6's maven"
         url = "https://dvs1.progwml6.com/files/maven/"
@@ -88,6 +93,18 @@ repositories {
     maven { url = "https://maven.createmod.net" } // Create, Ponder, Flywheel
     maven { url = "https://maven.ithundxr.dev/mirror" } // Registrate
     maven { url = "https://raw.githubusercontent.com/Fuzss/modresources/main/maven/" } // ForgeConfigAPIPort
+
+    // KotlinForForge repository (must be before VS Maven to resolve KFF correctly)
+    maven {
+        name = "Kotlin for Forge"
+        url = "https://thedarkcolour.github.io/KotlinForForge/"
+    }
+
+    // Valkyrien Skies repository
+    maven {
+        name = "Valkyrien Skies"
+        url = "https://maven.valkyrienskies.org"
+    }
 
     flatDir {
         dir 'libs'
@@ -113,14 +130,35 @@ dependencies {
     compileOnly(fg.deobf("mezz.jei:jei-${mc_version}-forge-api:${jei_version}"))
     runtimeOnly(fg.deobf("mezz.jei:jei-${mc_version}-forge:${jei_version}"))
 
+    // Valkyrien Skies 2 - using official Maven coordinates (based on Eureka's working configuration)
+    // transitive = true to allow VS to pull in Kotlin for Forge automatically
+    implementation fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:${vs2_version}")
+
+    // Valkyrien Skies Core modules (required for VS API usage)
+    implementation "org.valkyrienskies.core:api:${vscore_version}"
+    implementation "org.valkyrienskies.core:api-game:${vscore_version}"
+    implementation "org.valkyrienskies.core:util:${vscore_version}"
+    implementation "org.valkyrienskies.core:impl:${vscore_version}"
+
 }
 
 mixin {
     add sourceSets.main, "${mod_id}.refmap.json"
-
     config "${mod_id}.mixins.json"
     debug.export = true
+}
 
+// Copy refmap to resources directory for development runs
+task copyRefmap(type: Copy) {
+    dependsOn compileJava
+    from "build/tmp/compileJava/${mod_id}.refmap.json"
+    into "build/resources/main"
+    onlyIf { !file("build/resources/main/${mod_id}.refmap.json").exists() }
+}
+
+// Make sure refmap is copied before classes are assembled
+tasks.named('classes').configure {
+    dependsOn copyRefmap
 }
 
 tasks.named('processResources', ProcessResources).configure {
@@ -139,6 +177,8 @@ tasks.named('processResources', ProcessResources).configure {
 }
 
 tasks.named('jar', Jar).configure {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
     manifest {
 
         archiveClassifier = '1.20.1-Forge'

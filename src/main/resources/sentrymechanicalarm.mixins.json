@@ -7,11 +7,11 @@
   "mixins": [
     "BeltDeployerCallbacksMixin",
     "DeployerBlockEntityMixin",
-    "DeployerHandlerMixin",
-    "InteractKeyTextOverlayMixin"
+    "DeployerHandlerMixin"
   ],
   "client": [
-    "InteractKeyMixin"
+    "InteractKeyMixin",
+    "InteractKeyTextOverlayMixin"
   ],
   "injectors": {
     "defaultRequire": 1

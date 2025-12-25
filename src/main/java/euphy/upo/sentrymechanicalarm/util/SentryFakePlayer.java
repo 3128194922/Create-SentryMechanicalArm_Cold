@@ -10,8 +10,12 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
+import org.valkyrienskies.core.api.ships.LoadedShip;
+import org.valkyrienskies.mod.common.VSGameUtilsKt;
+import org.valkyrienskies.mod.common.util.VectorConversionsMCKt;
 
 import java.util.UUID;
 import java.util.WeakHashMap;
@@ -38,13 +42,30 @@ public class SentryFakePlayer {
 
 
     public static void sync(FakePlayer fp, SentryArmBlockEntity arm, float yaw, float pitch, ItemStack gunStack) {
+        // Calculate base position from block position
         double x = arm.getBlockPos().getX() + 0.5;
         double y = arm.getBlockPos().getY() + 1.0;
         double z = arm.getBlockPos().getZ() + 0.5;
 
-        fp.setPos(x, y, z);
-        fp.xo = x; fp.yo = y; fp.zo = z;
-        fp.xOld = x; fp.yOld = y; fp.zOld = z;
+        // Valkyrien Skies integration: Transform ship-local position to world coordinates
+        Vec3 worldPos;
+        LoadedShip ship = VSGameUtilsKt.getShipObjectManagingPos(arm.getLevel(), arm.getBlockPos());
+        if (ship != null) {
+            // Arm is on a ship, transform from ship space to world space
+            worldPos = VectorConversionsMCKt.toMinecraft(
+                ship.getTransform().getShipToWorld().transformPosition(
+                    VectorConversionsMCKt.toJOML(new Vec3(x, y, z))
+                )
+            );
+        } else {
+            // Arm is not on a ship, use position as-is
+            worldPos = new Vec3(x, y, z);
+        }
+
+        // Set fake player position using world coordinates
+        fp.setPos(worldPos.x, worldPos.y, worldPos.z);
+        fp.xo = worldPos.x; fp.yo = worldPos.y; fp.zo = worldPos.z;
+        fp.xOld = worldPos.x; fp.yOld = worldPos.y; fp.zOld = worldPos.z;
 
 
         fp.setYRot(yaw);
