@@ -4,6 +4,7 @@ import com.mojang.authlib.GameProfile;
 import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.entity.IGunOperator;
 import com.tacz.guns.api.item.IGun;
+import euphy.upo.sentrymechanicalarm.compat.VSCompat;
 import euphy.upo.sentrymechanicalarm.content.SentryArmBlockEntity;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -13,9 +14,6 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
-import org.valkyrienskies.core.api.ships.LoadedShip;
-import org.valkyrienskies.mod.common.VSGameUtilsKt;
-import org.valkyrienskies.mod.common.util.VectorConversionsMCKt;
 
 import java.util.UUID;
 import java.util.WeakHashMap;
@@ -48,19 +46,8 @@ public class SentryFakePlayer {
         double z = arm.getBlockPos().getZ() + 0.5;
 
         // Valkyrien Skies integration: Transform ship-local position to world coordinates
-        Vec3 worldPos;
-        LoadedShip ship = VSGameUtilsKt.getShipObjectManagingPos(arm.getLevel(), arm.getBlockPos());
-        if (ship != null) {
-            // Arm is on a ship, transform from ship space to world space
-            worldPos = VectorConversionsMCKt.toMinecraft(
-                ship.getTransform().getShipToWorld().transformPosition(
-                    VectorConversionsMCKt.toJOML(new Vec3(x, y, z))
-                )
-            );
-        } else {
-            // Arm is not on a ship, use position as-is
-            worldPos = new Vec3(x, y, z);
-        }
+        // Uses optional dependency - works with or without VS installed
+        Vec3 worldPos = VSCompat.transformShipToWorld(arm.getLevel(), arm.getBlockPos(), new Vec3(x, y, z));
 
         // Set fake player position using world coordinates
         fp.setPos(worldPos.x, worldPos.y, worldPos.z);

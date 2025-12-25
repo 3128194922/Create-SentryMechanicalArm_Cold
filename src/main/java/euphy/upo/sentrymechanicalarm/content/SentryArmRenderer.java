@@ -28,6 +28,7 @@ import com.tacz.guns.resource.index.CommonGunIndex;
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
 import dev.engine_room.flywheel.lib.transform.PoseTransformStack;
 import dev.engine_room.flywheel.lib.transform.TransformStack;
+import euphy.upo.sentrymechanicalarm.compat.VSCompat;
 import euphy.upo.sentrymechanicalarm.util.SentryShellManager;
 import net.createmod.catnip.data.Iterate;
 import net.createmod.catnip.render.CachedBuffers;
@@ -52,8 +53,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.joml.*;
 import org.slf4j.Logger;
-import org.valkyrienskies.core.api.ships.LoadedShip;
-import org.valkyrienskies.mod.common.VSGameUtilsKt;
 
 import java.lang.Math;
 import java.util.ArrayList;
@@ -106,22 +105,9 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         float headAngle = be.headAngle.getValue(pt);
 
         // Valkyrien Skies: Convert world angles to ship-local angles for rendering
-        LoadedShip ship = VSGameUtilsKt.getShipObjectManagingPos(be.getLevel(), be.getBlockPos());
-        if (ship != null) {
-            // Get ship's yaw rotation in degrees
-            org.joml.Quaterniondc shipRotation = ship.getTransform().getShipToWorldRotation();
-
-            // Convert quaternion to euler angles (yaw)
-            // For yaw-only rotation around Y axis
-            double shipYawRadians = Math.atan2(
-                2.0 * (shipRotation.w() * shipRotation.y() + shipRotation.x() * shipRotation.z()),
-                1.0 - 2.0 * (shipRotation.y() * shipRotation.y() + shipRotation.z() * shipRotation.z())
-            );
-            float shipYawDegrees = (float) Math.toDegrees(shipYawRadians);
-
-            // Subtract ship's yaw from base angle to get ship-local angle
-            baseAngle -= shipYawDegrees;
-        }
+        // Uses optional dependency - works with or without VS installed
+        float shipYaw = VSCompat.getShipYaw(be.getLevel(), be.getBlockPos());
+        baseAngle -= shipYaw;
 
         int color = 0xFFFFFF;
 

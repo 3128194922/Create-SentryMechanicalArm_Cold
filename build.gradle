@@ -130,15 +130,18 @@ dependencies {
     compileOnly(fg.deobf("mezz.jei:jei-${mc_version}-forge-api:${jei_version}"))
     runtimeOnly(fg.deobf("mezz.jei:jei-${mc_version}-forge:${jei_version}"))
 
-    // Valkyrien Skies 2 - using official Maven coordinates (based on Eureka's working configuration)
-    // transitive = true to allow VS to pull in Kotlin for Forge automatically
-    implementation fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:${vs2_version}")
+    // Valkyrien Skies 2 - OPTIONAL dependency (compileOnly = not bundled in jar)
+    // Users can choose whether to install VS - the mod works without it
+    compileOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:${vs2_version}")
 
-    // Valkyrien Skies Core modules (required for VS API usage)
-    implementation "org.valkyrienskies.core:api:${vscore_version}"
-    implementation "org.valkyrienskies.core:api-game:${vscore_version}"
-    implementation "org.valkyrienskies.core:util:${vscore_version}"
-    implementation "org.valkyrienskies.core:impl:${vscore_version}"
+    // Valkyrien Skies Core modules (required for VS API usage at compile time)
+    compileOnly "org.valkyrienskies.core:api:${vscore_version}"
+    compileOnly "org.valkyrienskies.core:api-game:${vscore_version}"
+    compileOnly "org.valkyrienskies.core:util:${vscore_version}"
+    compileOnly "org.valkyrienskies.core:impl:${vscore_version}"
+
+    // For development/testing with VS enabled (not bundled in jar)
+    runtimeOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:${vs2_version}")
 
 }
 

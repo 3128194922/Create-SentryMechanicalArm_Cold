@@ -12,6 +12,7 @@ import com.tacz.guns.api.item.gun.FireMode;
 import com.tacz.guns.resource.index.CommonGunIndex;
 import com.tacz.guns.resource.modifier.AttachmentCacheProperty;
 import com.tacz.guns.resource.pojo.data.gun.*;
+import euphy.upo.sentrymechanicalarm.compat.VSCompat;
 import euphy.upo.sentrymechanicalarm.network.NetworkHandler;
 import euphy.upo.sentrymechanicalarm.network.SentryShootPacket;
 import euphy.upo.sentrymechanicalarm.util.*;
@@ -41,9 +42,6 @@ import net.minecraft.world.phys.*;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.items.IItemHandler;
 import org.slf4j.Logger;
-import org.valkyrienskies.core.api.ships.LoadedShip;
-import org.valkyrienskies.mod.common.VSGameUtilsKt;
-import org.valkyrienskies.mod.common.util.VectorConversionsMCKt;
 
 import java.util.*;
 
@@ -377,7 +375,10 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         if (fp != null) {
             return fp.getEyePosition();
         }
-        return this.worldPosition.getCenter().add(0, 1.5, 0);
+
+        // Fallback: calculate from block position with VS support
+        Vec3 basePos = this.worldPosition.getCenter().add(0, 1.5, 0);
+        return VSCompat.transformShipToWorld(this.level, this.worldPosition, basePos);
     }
 
     private void resetAimer() {
@@ -1011,19 +1012,10 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             double originY = this.worldPosition.getY() + 2.62;
             double originZ = this.worldPosition.getZ() + 0.5;
 
-            // Valkyrien Skies integration: If arm is on a ship, transform from ship space to world space
-            LoadedShip armShip = VSGameUtilsKt.getShipObjectManagingPos(level, this.worldPosition);
-            if (armShip != null) {
-                // Arm is on a ship, transform from ship space to world space
-                armPosWorld = VectorConversionsMCKt.toMinecraft(
-                    armShip.getTransform().getShipToWorld().transformPosition(
-                        VectorConversionsMCKt.toJOML(new Vec3(originX, originY, originZ))
-                    )
-                );
-            } else {
-                // Arm is not on a ship, use position as-is
-                armPosWorld = new Vec3(originX, originY, originZ);
-            }
+            // Valkyrien Skies integration: Transform from ship space to world space if on a ship
+            // VSCompat handles VS detection - works with or without VS installed
+            Vec3 shipLocalPos = new Vec3(originX, originY, originZ);
+            armPosWorld = VSCompat.transformShipToWorld(level, this.worldPosition, shipLocalPos);
         }
 
         // Target position is already in world coordinates
