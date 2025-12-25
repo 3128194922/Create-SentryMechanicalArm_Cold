@@ -997,35 +997,33 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         upperArmAngle.chase(90f, animSpeed, LerpedFloat.Chaser.EXP);
     }
     private Vec2 calculateTruthAngle(Vec3 targetPos) {
- 
- 
-        double mathOriginY = this.worldPosition.getY() + 2.62;
-        FakePlayer fp = SentryFakePlayer.get(this);
-        double finalOriginY = mathOriginY;
- 
-        if (fp != null) {
-            finalOriginY = fp.getEyePosition().y;
-        } else {
-
-            finalOriginY = mathOriginY + 0.0;
-        }
-
-        double originX = this.worldPosition.getX() + 0.5;
-        double originZ = this.worldPosition.getZ() + 0.5;
-
-        // Valkyrien Skies integration: If arm is on a ship, transform arm position to world coordinates
+        // Get arm position in world coordinates
         Vec3 armPosWorld;
-        LoadedShip armShip = VSGameUtilsKt.getShipObjectManagingPos(level, this.worldPosition);
-        if (armShip != null) {
-            // Arm is on a ship, transform from ship space to world space
-            armPosWorld = VectorConversionsMCKt.toMinecraft(
-                armShip.getTransform().getShipToWorld().transformPosition(
-                    VectorConversionsMCKt.toJOML(new Vec3(originX, finalOriginY, originZ))
-                )
-            );
+        FakePlayer fp = SentryFakePlayer.get(this);
+
+        if (fp != null) {
+            // FakePlayer position is already in world coordinates (set by SentryFakePlayer.sync)
+            // Use it directly without any transformation
+            armPosWorld = fp.getEyePosition();
         } else {
-            // Arm is not on a ship, use position as-is
-            armPosWorld = new Vec3(originX, finalOriginY, originZ);
+            // No FakePlayer, calculate position from BlockPos
+            double originX = this.worldPosition.getX() + 0.5;
+            double originY = this.worldPosition.getY() + 2.62;
+            double originZ = this.worldPosition.getZ() + 0.5;
+
+            // Valkyrien Skies integration: If arm is on a ship, transform from ship space to world space
+            LoadedShip armShip = VSGameUtilsKt.getShipObjectManagingPos(level, this.worldPosition);
+            if (armShip != null) {
+                // Arm is on a ship, transform from ship space to world space
+                armPosWorld = VectorConversionsMCKt.toMinecraft(
+                    armShip.getTransform().getShipToWorld().transformPosition(
+                        VectorConversionsMCKt.toJOML(new Vec3(originX, originY, originZ))
+                    )
+                );
+            } else {
+                // Arm is not on a ship, use position as-is
+                armPosWorld = new Vec3(originX, originY, originZ);
+            }
         }
 
         // Target position is already in world coordinates
