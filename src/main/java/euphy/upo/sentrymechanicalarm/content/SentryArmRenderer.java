@@ -52,6 +52,8 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.joml.*;
 import org.slf4j.Logger;
+import org.valkyrienskies.core.api.ships.LoadedShip;
+import org.valkyrienskies.mod.common.VSGameUtilsKt;
 
 import java.lang.Math;
 import java.util.ArrayList;
@@ -83,7 +85,7 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
 
         ItemStack item = be.getHeldItem();
         boolean hasItem = !item.isEmpty();
- 
+
         boolean isBlockItem = false;
         if (hasItem) {
             ItemRenderer itemRenderer = Minecraft.getInstance().getItemRenderer();
@@ -102,6 +104,25 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         float lowerArmAngle = be.lowerArmAngle.getValue(pt) - 135.0F;
         float upperArmAngle = be.upperArmAngle.getValue(pt) - 90.0F;
         float headAngle = be.headAngle.getValue(pt);
+
+        // Valkyrien Skies: Convert world angles to ship-local angles for rendering
+        LoadedShip ship = VSGameUtilsKt.getShipObjectManagingPos(be.getLevel(), be.getBlockPos());
+        if (ship != null) {
+            // Get ship's yaw rotation in degrees
+            org.joml.Quaterniondc shipRotation = ship.getTransform().getShipToWorldRotation();
+
+            // Convert quaternion to euler angles (yaw)
+            // For yaw-only rotation around Y axis
+            double shipYawRadians = Math.atan2(
+                2.0 * (shipRotation.w() * shipRotation.y() + shipRotation.x() * shipRotation.z()),
+                1.0 - 2.0 * (shipRotation.y() * shipRotation.y() + shipRotation.z() * shipRotation.z())
+            );
+            float shipYawDegrees = (float) Math.toDegrees(shipYawRadians);
+
+            // Subtract ship's yaw from base angle to get ship-local angle
+            baseAngle -= shipYawDegrees;
+        }
+
         int color = 0xFFFFFF;
 
         msr.center();
