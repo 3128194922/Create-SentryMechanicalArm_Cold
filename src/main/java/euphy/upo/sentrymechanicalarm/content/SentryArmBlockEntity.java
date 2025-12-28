@@ -1,7 +1,10 @@
 package euphy.upo.sentrymechanicalarm.content;
 
-import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
+import com.simibubi.create.foundation.blockEntity.behaviour.ValueBoxTransform;
+import com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.ScrollValueBehaviour;
+import com.simibubi.create.foundation.virtualWorld.VirtualRenderWorld;
 import com.tacz.guns.api.GunProperties;
 import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.entity.IGunOperator;
@@ -15,11 +18,16 @@ import com.tacz.guns.resource.pojo.data.gun.*;
 import euphy.upo.sentrymechanicalarm.compat.VSCompat;
 import euphy.upo.sentrymechanicalarm.network.NetworkHandler;
 import euphy.upo.sentrymechanicalarm.network.SentryShootPacket;
-import euphy.upo.sentrymechanicalarm.util.*;
+import euphy.upo.sentrymechanicalarm.util.IArmAmmoStorage;
+import euphy.upo.sentrymechanicalarm.util.SentryFakePlayer;
+import euphy.upo.sentrymechanicalarm.util.SentryTargetSavedData;
 import net.createmod.catnip.animation.LerpedFloat;
+import net.createmod.catnip.math.AngleHelper;
+import net.createmod.catnip.math.VecHelper;
+import net.createmod.catnip.nbt.NBTHelper;
 import net.minecraft.ChatFormatting;
-import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.NonNullList;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtUtils;
@@ -30,9 +38,11 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -41,7 +51,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.*;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.items.IItemHandler;
-import org.slf4j.Logger;
+import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.*;
 
@@ -54,7 +64,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     private int idleScanTimer = 0;
     public float idleTargetYaw = 0;
     public float idleTargetPitch = 0;
-    private int syncedTargetId = -1;
+    int syncedTargetId = -1;
     private boolean shouldEjectShell = false;
     private float shootDelayAccumulator = 0f;
     public LerpedFloat baseAngle;
@@ -67,6 +77,8 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     private long lastShootTime = 0;
     private LivingEntity cachedTarget;
     private int scanCooldown = 0;
+    public ScrollValueBehaviour rangeScroll;
+    public Optional<DyeColor> color = Optional.empty();
 
     public SentryArmBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
         super(type, pos, state);
@@ -76,16 +88,33 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         headAngle = LerpedFloat.angular().startWithValue(0);
     }
 
+    @Override
+    public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
+        super.addBehaviours(behaviours);
+
+        rangeScroll = new ScrollValueBehaviour(
+                Component.translatable("sentry.scroll_value.range"),
+                this,
+                new SentryValueBoxTransform()
+        );
+        rangeScroll.between(0, 0);
+        rangeScroll.withCallback(newValue -> this.scanCooldown = 0);
+        behaviours.add(rangeScroll);
+        updateRangeScrollBounds();
+    }
+
     public boolean shouldEjectShell() { return shouldEjectShell; }
     public void setShellEjected() { this.shouldEjectShell = false; }
     public ItemStack getHeldItem() {
-        return heldItem;
+        return heldItem == null ? ItemStack.EMPTY : heldItem;
+
     }
 
     public void setHeldItem(ItemStack stack) {
         this.heldItem = stack;
         this.setChanged();
         this.sendData();
+        updateRangeScrollBounds();
     }
 
     public long getLastShootTime() {
@@ -131,8 +160,8 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
 
     @Override
     public void setAmmoBox(ItemStack stack) {
- 
-        attachedAmmoBoxes.clear(); 
+
+        attachedAmmoBoxes.clear();
         attachedAmmoBoxes.set(0, stack);
         attachedAmmoBoxes.set(1, ItemStack.EMPTY);
         this.setChanged();
@@ -149,7 +178,6 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         headAngle.tickChaser();
 
         ItemStack currentHeld = getHeldItem();
-
         boolean isPowered = Math.abs(this.getSpeed()) > 0;
 
         if (!isPowered) {
@@ -181,48 +209,17 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     }
 
     private double getSentryRange() {
-        ItemStack currentHeld = getHeldItem();
-        if (currentHeld.isEmpty() || !(currentHeld.getItem() instanceof IGun iGun)) {
+        if (rangeScroll == null || heldItem.isEmpty()) {
             return 16.0;
         }
+        double rawValue = rangeScroll.getValue();
 
-        ResourceLocation gunId = iGun.getGunId(currentHeld);
-        Optional<CommonGunIndex> indexOpt = TimelessAPI.getCommonGunIndex(gunId);
-
-        if (indexOpt.isPresent()) {
-            GunData gunData = indexOpt.get().getGunData();
-            BulletData bulletData = gunData.getBulletData();
-
-            if (bulletData != null) {
-                float baseEffectiveRange = -1.0f;
-
-                ExtraDamage extraDamage = bulletData.getExtraDamage();
-                if (extraDamage != null) {
-                    LinkedList<ExtraDamage.DistanceDamagePair> damageAdjust = extraDamage.getDamageAdjust();
-                    if (damageAdjust != null && !damageAdjust.isEmpty()) {
-                        baseEffectiveRange = damageAdjust.get(0).getDistance();
-                    }
-                }
-
-                if (baseEffectiveRange <= 0) {
-                    float speed = bulletData.getSpeed();
-
-                    baseEffectiveRange = (speed > 0 ? speed : 10.0f) * 12.0f;
-                }
-
-                double finalRange = baseEffectiveRange * 2.0;
-
-                return Math.min(finalRange, 128.0);
-            }
-        }
-
-        return 8.0;
+        return Math.min(rawValue, 256.0);
     }
 
     public void setLastShootTime(long time) {
         this.lastShootTime = time;
     }
-
 
     private void sentryLogic() {
         if (!this.level.isClientSide) {
@@ -285,7 +282,6 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             }
         }
 
-
         if (currentTickBestPos == null) {
             if (cachedTarget != null && cachedTarget.isAlive()) {
                 currentTickBestPos = getBestTargetPos(cachedTarget);
@@ -299,19 +295,26 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             Vec2 truthAngles = calculateTruthAngle(currentTickBestPos);
             float trueYaw = truthAngles.x;
             float truePitch = truthAngles.y;
-
             aimAtAngle(trueYaw, truePitch);
 
             if (!this.level.isClientSide) {
-                float currentPhysicalYaw = 180 - baseAngle.getValue();
-                float currentPhysicalPitch = headAngle.getValue();
+                float currentWorldYaw;
+                float currentWorldPitch;
 
-                double absDiff = Math.abs(trueYaw - currentPhysicalYaw) % 360;
+                if (isCeiling()) {
+                    currentWorldYaw = baseAngle.getValue();
+                    currentWorldPitch = headAngle.getValue();
+                } else {
+                    currentWorldYaw = 180 - baseAngle.getValue();
+                    currentWorldPitch = -headAngle.getValue();
+                }
+                double absDiff = Math.abs(trueYaw - currentWorldYaw) % 360;
                 double deviation = Math.min(absDiff, 360 - absDiff);
                 float currentUpperArm = upperArmAngle.getValue();
                 boolean isDeployed = currentUpperArm > 80f;
+
                 if (deviation < 6.0 && isDeployed) {
-                    fireGun(currentPhysicalYaw, -currentPhysicalPitch);
+                    fireGun(currentWorldYaw, currentWorldPitch);
                 }
             }
         } else {
@@ -320,6 +323,11 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     }
 
     private void aimAtAngle(float targetYaw, float targetPitch) {
+        if (isCeiling()) {
+            targetPitch = -targetPitch ;
+            targetYaw = -targetYaw + 180;
+        }
+
         float currentYaw = baseAngle.getValue();
         float desiredYaw = -targetYaw + 180;
         float yawDiff = desiredYaw - currentYaw;
@@ -332,13 +340,12 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             baseAngle.chase(currentYaw + yawDiff, 1.0f, LerpedFloat.Chaser.EXP);
         }
         else {
- 
             if (absYawDiff < 10.0f) {
-                yawSpeedBase = 0.8f; 
+                yawSpeedBase = 0.8f;
             } else if (absYawDiff < 45.0f) {
-                yawSpeedBase = 0.4f; 
+                yawSpeedBase = 0.4f;
             } else {
-                yawSpeedBase = 0.35f; 
+                yawSpeedBase = 0.35f;
             }
             baseAngle.chase(currentYaw + yawDiff, getAnimationSpeed(yawSpeedBase), LerpedFloat.Chaser.EXP);
         }
@@ -349,10 +356,10 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         float absPitchDiff = Math.abs(pitchDiff);
 
         if (absPitchDiff < 0.5f) {
- 
+
             headAngle.chase(desiredPitch, 1.0f, LerpedFloat.Chaser.EXP);
         } else {
- 
+
             float pitchSpeedBase;
             if (absPitchDiff < 5.0f) {
                 pitchSpeedBase = 0.8f;
@@ -361,7 +368,6 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             }
             headAngle.chase(desiredPitch, getAnimationSpeed(pitchSpeedBase), LerpedFloat.Chaser.EXP);
         }
-
         upperArmAngle.chase(90f, getAnimationSpeed(0.4f), LerpedFloat.Chaser.EXP);
         this.lowerArmRecoilOffset = net.minecraft.util.Mth.lerp(0.7f, this.lowerArmRecoilOffset, 0f);
         if (Math.abs(this.lowerArmRecoilOffset) < 0.01f) this.lowerArmRecoilOffset = 0f;
@@ -373,9 +379,17 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         FakePlayer fp = SentryFakePlayer.get(this);
 
         if (fp != null) {
-            return fp.getEyePosition();
+            Vec3 resultPos = fp.getEyePosition();
+            if (isCeiling()) {
+                return resultPos.add(0, -4.0, 0);
+            }
+            return resultPos;
         }
+
         Vec3 basePos = this.worldPosition.getCenter().add(0, 1.5, 0);
+        if (isCeiling()) {
+            basePos = basePos.add(0, -4.0, 0);
+        }
         return VSCompat.transformShipToWorld(this.level, this.worldPosition, basePos);
     }
 
@@ -386,29 +400,34 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     public void updateFromFireControl() {
         this.cachedTarget = null;
         this.setTargetId(-1);
-        this.scanCooldown = 0; 
+        this.scanCooldown = 0;
     }
 
     private void scanForTarget() {
- 
+
         double range = this.getSentryRange();
         if (range < 1.0) return;
+        if (range > 256.0) range = 256.0;
 
         boolean isStrictControlMode = false;
+        boolean isWhitelistMode = false;
         List<String> activeWhitelist = null;
 
         if (this.connectedFireControlPos != null) {
             if (level.isLoaded(this.connectedFireControlPos)) {
                 BlockEntity be = level.getBlockEntity(this.connectedFireControlPos);
 
- 
+
                 if (be instanceof BlazeFireControlBlockEntity fc) {
- 
-                    if (this.connectedFireControlPos.distSqr(this.worldPosition) > 9.0) {
-                        this.disconnectFireControl(); 
+
+                    if (this.connectedFireControlPos.distSqr(this.worldPosition) > 36.0) {
+                        this.disconnectFireControl();
                     } else {
-                        isStrictControlMode = true;
-                        activeWhitelist = fc.getTargetList();
+                        if (!fc.inventory.getStackInSlot(0).isEmpty()) {
+                            isStrictControlMode = true;
+                            isWhitelistMode = fc.isWhitelist();
+                            activeWhitelist = fc.getTargetList();
+                        }
                     }
                 } else {
                     this.disconnectFireControl();
@@ -417,49 +436,48 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         }
 
         final boolean finalStrict = isStrictControlMode;
+        final boolean finalWhitelistMode = isWhitelistMode;
         final List<String> finalList = activeWhitelist;
 
         AABB area = new AABB(this.worldPosition).inflate(range);
-
         List<LivingEntity> potentialTargets = this.level.getEntitiesOfClass(LivingEntity.class, area, e -> {
             if (!e.isAlive() || e.isSpectator()) return false;
-
             if (finalStrict) {
-
                 if (finalList == null || finalList.isEmpty()) {
-                    return false;
+                    return finalWhitelistMode && (e instanceof Enemy);
                 }
-                String name = e.getName().getString(); 
+                String name = e.getName().getString();
+                boolean inList = false;
                 for (String targetName : finalList) {
                     if (targetName.equals(name)) {
-                        return true; 
+                        inList = true;
+                        break;
                     }
                 }
-                return false; 
-
+                if (finalWhitelistMode) {
+                    return !inList;
+                } else {
+                    return inList;
+                }
             } else {
- 
-
                 return (e instanceof Enemy);
             }
         });
 
         LivingEntity newTarget = potentialTargets.stream()
-                .filter(target -> getBestTargetPos(target) != null) 
+                .filter(target -> getBestTargetPos(target) != null)
                 .min(Comparator.comparingDouble(e -> e.distanceToSqr(this.worldPosition.getCenter())))
                 .orElse(null);
 
         if (newTarget != null) {
- 
             if (this.cachedTarget != newTarget) {
                 this.cachedTarget = newTarget;
                 setTargetId(newTarget.getId());
             }
- 
+
             this.cachedTargetBlock = null;
             return;
         } else {
- 
             if (this.cachedTarget != null) {
                 this.cachedTarget = null;
                 setTargetId(-1);
@@ -468,35 +486,26 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
 
         if (!this.level.isClientSide) {
             Set<BlockPos> targets = SentryTargetSavedData.get(this.level).getTargets();
-
-
-
             BlockPos bestBlock = null;
             double minDstSqr = range * range;
-            Vec3 muzzle = this.getActualMuzzlePos(); 
+            Vec3 muzzle = this.getActualMuzzlePos();
             Vec3 center = this.worldPosition.getCenter();
 
             for (BlockPos pos : targets) {
- 
                 double dstSqr = center.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
                 if (dstSqr > minDstSqr) continue;
-
                 if (isBlockVisible(muzzle, pos)) {
                     minDstSqr = dstSqr;
                     bestBlock = pos;
                 }
             }
-
             if (!java.util.Objects.equals(this.cachedTargetBlock, bestBlock)) {
                 this.cachedTargetBlock = bestBlock;
                 syncTargetBlock();
             }
-
             this.cachedTargetBlock = bestBlock;
-
         }
     }
-
 
     private void setTargetId(int id) {
         if (this.syncedTargetId == id) return;
@@ -509,7 +518,6 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     private Vec3 getBestTargetPos(LivingEntity target) {
 
         Vec3 armPos = this.getActualMuzzlePos();
-
         float height = target.getBbHeight();
         Vec3 basePos = target.position();
 
@@ -522,10 +530,8 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         Vec3 legPos = basePos.add(0, height * 0.25, 0);
         if (isPointVisible(armPos, legPos)) return legPos;
 
-
         Vec3 feetPos = basePos.add(0, height * 0.1, 0);
         if (isPointVisible(armPos, feetPos)) return feetPos;
-
 
         return null;
     }
@@ -535,7 +541,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
                 start, end,
                 ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, null
         ));
- 
+
         return result.getType() == HitResult.Type.MISS;
     }
 
@@ -548,18 +554,18 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         return baseChaserSpeed * multiplier;
     }
 
-
     public void disconnectFireControl() {
         this.connectedFireControlPos = null;
         this.cachedTarget = null;
         this.setTargetId(-1);
 
- 
+
         this.setChanged();
         this.syncTargetBlock();
     }
 
     private void fireGun(float targetYaw, float targetPitch) {
+
         if (heldItem.isEmpty()) return;
         if (this.level.isClientSide) return;
 
@@ -567,6 +573,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         ResourceLocation gunId = iGun.getGunId(heldItem);
         Optional<CommonGunIndex> indexOpt = TimelessAPI.getCommonGunIndex(gunId);
         if (indexOpt.isEmpty()) return;
+        CommonGunIndex index = indexOpt.get();
         GunData gunData = indexOpt.get().getGunData();
         float currentRPM = gunData.getRoundsPerMinute(FireMode.AUTO);
         if (gunData.hasHeatData()) {
@@ -576,6 +583,11 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         Bolt boltType = gunData.getBolt();
         if (boltType == Bolt.MANUAL_ACTION) {
             currentRPM /= 5.0f;
+        }
+        String type = index.getType();
+
+        if ("rpg".equals(type) || "grenade_launcher".equals(type)) {
+            currentRPM /= 6.0f;
         }
 
         if (currentRPM <= 0) currentRPM = 1;
@@ -606,7 +618,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         }
 
         if (!hasAmmo) {
- 
+
             if (this.shootDelayAccumulator < 0) this.shootDelayAccumulator = 0;
             return;
         }
@@ -620,12 +632,12 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
                 this.shootDelayAccumulator += ticksPerShot;
                 shotsFired++;
                 currentGunAmmo = iGun.getCurrentAmmoCount(heldItem);
- 
+
                 if (currentGunAmmo <= 0 && !canFindNextAmmo(heldItem)) {
                     break;
                 }
             } else {
- 
+
                 this.shootDelayAccumulator = Math.max(0, this.shootDelayAccumulator + ticksPerShot);
                 break;
             }
@@ -646,10 +658,22 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     private boolean performSingleShot(float targetYaw, float targetPitch, IGun iGun, GunData gunData, int currentGunAmmo, ItemStack ammoSource) {
         FakePlayer fakePlayer = SentryFakePlayer.get(this);
         if (fakePlayer == null) return false;
+
         SentryFakePlayer.sync(fakePlayer, this, targetYaw, targetPitch, heldItem);
+        Vec3 muzzlePos = getActualMuzzlePos();
+
+        fakePlayer.setPos(muzzlePos.x, muzzlePos.y - fakePlayer.getEyeHeight(), muzzlePos.z);
+        fakePlayer.xo = fakePlayer.getX();
+        fakePlayer.yo = fakePlayer.getY();
+        fakePlayer.zo = fakePlayer.getZ();
+        fakePlayer.xOld = fakePlayer.getX();
+        fakePlayer.yOld = fakePlayer.getY();
+        fakePlayer.zOld = fakePlayer.getZ();
         fakePlayer.setGameMode(GameType.CREATIVE);
         IGunOperator operator = IGunOperator.fromLivingEntity(fakePlayer);
         AttachmentCacheProperty cache = operator.getCacheProperty();
+
+
         if (cache != null) {
             double distToTarget = 0.0;
             if (this.cachedTarget != null) {
@@ -660,39 +684,54 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
 
             float effectiveRange = calculateEffectiveRange(gunData);
 
+            ResourceLocation gunId = iGun.getGunId(heldItem);
+
+            boolean isSniper = false;
+            Optional<CommonGunIndex> gunIndexOpt = TimelessAPI.getCommonGunIndex(gunId);
+
+            if (gunIndexOpt.isPresent()) {
+                String type = gunIndexOpt.get().getType();
+                if ("sniper".equalsIgnoreCase(type)) {
+                    isSniper = true;
+                }
+            }
+
             float targetSpread;
 
-            if (distToTarget <= effectiveRange) {
+            if (isSniper) {
+                targetSpread = 0.0f;
+            } else if (distToTarget <= effectiveRange) {
                 targetSpread = 0.0f;
             } else {
                 double excessDistance = distToTarget - effectiveRange;
-
                 targetSpread = (float) (excessDistance * 0.02);
-
                 targetSpread = Math.min(targetSpread, 5.0f);
             }
 
-            String inaccuracyId = GunProperties.INACCURACY.name();
-            @SuppressWarnings("unchecked")
-            Map<InaccuracyType, Float> inaccuracyMap = (Map<InaccuracyType, Float>) cache.getCache(inaccuracyId);
 
-            if (inaccuracyMap != null) {
-                inaccuracyMap.put(InaccuracyType.AIM, targetSpread);
-                inaccuracyMap.put(InaccuracyType.STAND, targetSpread);
+            Map<InaccuracyType, Float> cachedMap = cache.getCache(GunProperties.INACCURACY);
+            Map<InaccuracyType, Float> mutableInaccuracyMap;
+            if (cachedMap != null) {
+                mutableInaccuracyMap = new HashMap<>(cachedMap);
+            } else {
+                mutableInaccuracyMap = new EnumMap<>(InaccuracyType.class);
             }
+            mutableInaccuracyMap.put(InaccuracyType.AIM, targetSpread);
+            mutableInaccuracyMap.put(InaccuracyType.STAND, targetSpread);
+            cache.setCache(GunProperties.INACCURACY, mutableInaccuracyMap);
         }
 
         operator.getDataHolder().isAiming = true;
         operator.getDataHolder().aimingProgress = 1.0f;
 
- 
+
         boolean usedCheatAmmo = false;
         ItemStack fakeHeldItem = fakePlayer.getMainHandItem();
         IGun iGunFake = IGun.getIGunOrNull(fakeHeldItem);
 
         if (currentGunAmmo <= 0 && !ammoSource.isEmpty() && iGunFake != null) {
             ResourceLocation ammoId = gunData.getAmmoId();
-            net.minecraft.world.item.Item ammoItem = net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(ammoId);
+            net.minecraft.world.item.Item ammoItem = ForgeRegistries.ITEMS.getValue(ammoId);
             if (ammoItem != null) {
                 fakePlayer.getInventory().add(new ItemStack(ammoItem, 64));
             }
@@ -701,15 +740,25 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         }
 
         this.lastShootTime = System.currentTimeMillis();
-        ShootResult result = operator.shoot(() -> targetPitch, () -> targetYaw);
+
+        ShootResult result;
+        try {
+            result = operator.shoot(() -> targetPitch, () -> targetYaw);
+        } catch (Exception e) {
+            return false;
+        }
+        boolean isScriptGun = (operator.getDataHolder().scriptData != null);
 
         if (result == ShootResult.NEED_BOLT) {
             operator.bolt();
-            return false; 
+            return false;
         }
 
         if (result == ShootResult.SUCCESS) {
- 
+            if (isScriptGun) {
+                this.shootDelayAccumulator += 30.0f;
+            }
+
             int slotToSync = -2;
             ItemStack stackToSync = ItemStack.EMPTY;
             if (usedCheatAmmo) {
@@ -733,7 +782,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
                 fakePlayer.getInventory().clearContent();
             }
 
- 
+
             Vec3 realStart = fakePlayer.getEyePosition();
             Vec3 lookVec = fakePlayer.getViewVector(1.0F);
             Vec3 traceEnd = realStart.add(lookVec.scale(100));
@@ -764,23 +813,19 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     private float calculateEffectiveRange(GunData gunData) {
         BulletData bulletData = gunData.getBulletData();
         if (bulletData == null) return 32.0f;
-
         float effectiveRange = -1.0f;
 
- 
         ExtraDamage extraDamage = bulletData.getExtraDamage();
         if (extraDamage != null) {
             LinkedList<ExtraDamage.DistanceDamagePair> damageAdjust = extraDamage.getDamageAdjust();
             if (damageAdjust != null && !damageAdjust.isEmpty()) {
- 
+
                 effectiveRange = damageAdjust.get(0).getDistance();
             }
         }
- 
+
         if (effectiveRange <= 0) {
             float speed = bulletData.getSpeed();
- 
- 
             effectiveRange = (speed > 0 ? speed : 10.0f) * 12.0f;
         }
 
@@ -798,33 +843,31 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         this.setChanged();
         this.sendData();
     }
- 
+
     @Override
     public ClientboundBlockEntityDataPacket getUpdatePacket() {
- 
+
         return ClientboundBlockEntityDataPacket.create(this);
     }
- 
+
     @Override
     public void onDataPacket(net.minecraft.network.Connection net, ClientboundBlockEntityDataPacket pkt) {
- 
+
         CompoundTag tag = pkt.getTag();
         if (tag != null) {
-            this.read(tag, true); 
+            this.read(tag, true);
         }
     }
 
     @Override
     public boolean addToGoggleTooltip(List<Component> tooltip, boolean isPlayerSneaking) {
-        boolean superResult = super.addToGoggleTooltip(tooltip, isPlayerSneaking); 
+        boolean superResult = super.addToGoggleTooltip(tooltip, isPlayerSneaking);
 
         if (heldItem.isEmpty() || !(heldItem.getItem() instanceof IGun)) {
             return superResult;
         }
-
-        var player = Minecraft.getInstance().player;
-        if (player == null) return superResult;
-
+        //var player = Minecraft.getInstance().player;
+        //if (player == null) return superResult;
         addSentryGunTooltip(tooltip, heldItem);
         return true;
     }
@@ -883,32 +926,34 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         }
         float currentHead = headAngle.getValue();
         float targetHead = headAngle.getChaseTarget();
- 
-        if (currentHead > targetHead - 2.0f) { 
+
+        if (currentHead > targetHead - 2.0f) {
             headAngle.setValue(currentHead - 0.5f);
         }
 
+        /*
         ItemStack gun = getHeldItem();
         if (!gun.isEmpty() && gun.getItem() instanceof IGun iGun) {
             Optional<CommonGunIndex> indexOpt = TimelessAPI.getCommonGunIndex(iGun.getGunId(gun));
             indexOpt.ifPresent(index -> {
- 
+
                 Vec3 center = this.worldPosition.getCenter();
                 ArmSoundHelper.playFireEffects(
                         null, this.level, center, new Vec3(0,0,0), 0, gun, index.getGunData()
                 );
             });
         }
+         */
     }
 
     public void updateAmmoFromPacket(int slotIndex, CompoundTag newTag) {
         if (slotIndex == -1) {
- 
+
             if (!heldItem.isEmpty()) {
                 heldItem.setTag(newTag);
             }
         } else if (slotIndex >= 0 && slotIndex < attachedAmmoBoxes.size()) {
- 
+
             ItemStack box = attachedAmmoBoxes.get(slotIndex);
             if (!box.isEmpty()) {
                 box.setTag(newTag);
@@ -926,14 +971,14 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
                 SentryFakePlayer.get(this)
         ));
 
- 
+
         if (result.getType() == net.minecraft.world.phys.HitResult.Type.MISS) {
             return true;
         }
 
         if (result.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
             BlockPos hitPos = result.getBlockPos();
- 
+
             if (hitPos.equals(targetPos)) {
                 return true;
             }
@@ -943,16 +988,15 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     }
 
     private void updateClientTarget() {
- 
+
         if (syncedTargetId == -1) {
             this.cachedTarget = null;
             return;
         }
 
- 
         if (this.cachedTarget != null && this.cachedTarget.getId() == syncedTargetId) {
             if (!this.cachedTarget.isAlive() || this.cachedTarget.isRemoved()) {
-                this.cachedTarget = null; 
+                this.cachedTarget = null;
             }
             return;
         }
@@ -961,28 +1005,67 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         if (entity instanceof LivingEntity living) {
             this.cachedTarget = living;
         } else {
- 
+
             this.cachedTarget = null;
         }
     }
 
+    private void updateRangeScrollBounds() {
+        if (this.rangeScroll == null) return;
+
+        if (this.level instanceof VirtualRenderWorld) {
+            return;
+        }
+
+        ItemStack stack = getHeldItem();
+        if (stack == null) stack = ItemStack.EMPTY;
+        int min = 1;
+        int max = 2;
+        int smartDefault = 1;
+        if (!stack.isEmpty() && stack.getItem() instanceof IGun iGun) {
+            Optional<CommonGunIndex> indexOpt = TimelessAPI.getCommonGunIndex(iGun.getGunId(stack));
+            if (indexOpt.isPresent()) {
+                float effRange = calculateEffectiveRange(indexOpt.get().getGunData());
+
+                max = Math.round(effRange * 2);;
+                if (max < 4) max = 4;
+                smartDefault = Math.round(effRange * 1.5f);
+
+            }
+        }else {
+            rangeScroll.between(0, 0);
+            rangeScroll.setValue(0);
+            return;
+        }
+
+        rangeScroll.between(min, max);
+        int currentValue = rangeScroll.getValue();
+
+        if (currentValue == 0) {
+            rangeScroll.setValue(smartDefault);
+        }
+
+        else if (currentValue < min) {
+            rangeScroll.setValue(min);
+        }
+        else if (currentValue > max) {
+            rangeScroll.setValue(max);
+        }
+    }
+
+
     private void sentryIdleScanning() {
- 
         if (!this.level.isClientSide) {
             if (idleScanTimer-- <= 0) {
- 
                 this.idleTargetYaw = this.level.random.nextFloat() * 1800f;
                 this.idleTargetPitch = (this.level.random.nextFloat() * 30f) - 15f;
- 
                 this.idleScanTimer = 80 + this.level.random.nextInt(60);
-
- 
                 this.sendData();
             }
         }
 
         float animSpeed = getAnimationSpeed(0.1f);
- 
+
         float currentBase = baseAngle.getValue();
         float diffYaw = idleTargetYaw - currentBase;
         while (diffYaw < -180) diffYaw += 360;
@@ -994,31 +1077,15 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         upperArmAngle.chase(90f, animSpeed, LerpedFloat.Chaser.EXP);
     }
     private Vec2 calculateTruthAngle(Vec3 targetPos) {
-        // Get arm position in world coordinates
-        Vec3 armPosWorld;
-        FakePlayer fp = SentryFakePlayer.get(this);
+        Vec3 muzzlePos = getActualMuzzlePos();
 
-        if (fp != null) {
-            // FakePlayer position is already in world coordinates (set by SentryFakePlayer.sync)
-            // Use it directly without any transformation
-            armPosWorld = fp.getEyePosition();
-        } else {
-            // No FakePlayer, calculate position from BlockPos
-            double originX = this.worldPosition.getX() + 0.5;
-            double originY = this.worldPosition.getY() + 2.62;
-            double originZ = this.worldPosition.getZ() + 0.5;
+        double finalOriginY = muzzlePos.y;
+        double originX = muzzlePos.x;
+        double originZ = muzzlePos.z;
 
-            // Valkyrien Skies integration: Transform from ship space to world space if on a ship
-            // VSCompat handles VS detection - works with or without VS installed
-            Vec3 shipLocalPos = new Vec3(originX, originY, originZ);
-            armPosWorld = VSCompat.transformShipToWorld(level, this.worldPosition, shipLocalPos);
-        }
-
-        // Target position is already in world coordinates
-        // Calculate angle in world space
-        double diffX = targetPos.x - armPosWorld.x;
-        double diffY = targetPos.y - armPosWorld.y;
-        double diffZ = targetPos.z - armPosWorld.z;
+        double diffX = targetPos.x - originX;
+        double diffY = targetPos.y - finalOriginY;
+        double diffZ = targetPos.z - originZ;
 
         float yaw = (float) (Mth.atan2(diffZ, diffX) * (180D / Math.PI)) - 90.0F;
         double distHorizontal = Math.sqrt(diffX * diffX + diffZ * diffZ);
@@ -1027,10 +1094,36 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         return new Vec2(yaw, pitch);
     }
 
+    private void spawnDebugLine(Vec3 start, Vec3 end, org.joml.Vector3f color) {
+        if (this.level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+            double distance = start.distanceTo(end);
+            Vec3 direction = end.subtract(start).normalize();
+            for (double d = 0; d < distance; d += 0.25) {
+                Vec3 pos = start.add(direction.scale(d));
+                serverLevel.sendParticles(new net.minecraft.core.particles.DustParticleOptions(color, 0.5f),
+                        pos.x, pos.y, pos.z, 1, 0, 0, 0, 0);
+            }
+        }
+    }
+
+    public boolean applyColor(DyeColor colorIn) {
+        if (colorIn == null) {
+            if (this.color.isEmpty()) return false;
+            this.color = Optional.empty();
+        } else {
+            if (this.color.isPresent() && this.color.get() == colorIn) return false;
+            this.color = Optional.of(colorIn);
+        }
+
+        setChanged();
+        sendData();
+        return true;
+    }
+
     @Override
     public CompoundTag getUpdateTag() {
         CompoundTag tag = new CompoundTag();
-        saveAdditional(tag); 
+        saveAdditional(tag);
         return tag;
     }
 
@@ -1041,15 +1134,20 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         }
     }
 
- 
     public void setConnectedFireControl(BlockPos pos) {
         this.connectedFireControlPos = pos;
         this.setChanged();
-        this.syncTargetBlock(); 
+        this.syncTargetBlock();
     }
 
     public BlockPos getConnectedFireControl() {
         return connectedFireControlPos;
+    }
+
+    private boolean isCeiling() {
+        if (this.level == null) return false;
+        BlockState state = this.getBlockState();
+        return state.hasProperty(SentryArmBlock.CEILING) && state.getValue(SentryArmBlock.CEILING);
     }
 
 
@@ -1057,7 +1155,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     protected void read(CompoundTag compound, boolean clientPacket) {
         super.read(compound, clientPacket);
 
- 
+
         if (compound.contains("SentryHeldItem")) {
             heldItem = ItemStack.of(compound.getCompound("SentryHeldItem"));
         } else {
@@ -1079,7 +1177,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             CompoundTag angles = compound.getCompound("Angles");
 
             if (!clientPacket) {
- 
+
                 baseAngle.setValue(angles.getFloat("Base"));
                 lowerArmAngle.setValue(angles.getFloat("Lower"));
                 upperArmAngle.setValue(angles.getFloat("Upper"));
@@ -1091,7 +1189,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
                 if (!isCombatMode) {
                     float serverBase = angles.getFloat("Base");
                     if (Math.abs(baseAngle.getValue() - serverBase) > 10f) {
-                        baseAngle.setValue(serverBase); 
+                        baseAngle.setValue(serverBase);
                     }
                 }
             }
@@ -1105,16 +1203,20 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         if (compound.contains("FireControlPos")) {
             this.connectedFireControlPos = NbtUtils.readBlockPos(compound.getCompound("FireControlPos"));
         } else {
- 
- 
             this.connectedFireControlPos = null;
         }
 
         this.idleTargetYaw = compound.getFloat("IdleTargetYaw");
         this.idleTargetPitch = compound.getFloat("IdleTargetPitch");
         this.idleScanTimer = compound.getInt("IdleScanTimer");
-    }
 
+        if (compound.contains("Dye")) {
+            color = Optional.of(NBTHelper.readEnum(compound, "Dye", DyeColor.class));
+        } else {
+            color = Optional.empty();
+        }
+        updateRangeScrollBounds();
+    }
 
     @Override
     protected void write(CompoundTag compound, boolean clientPacket) {
@@ -1123,12 +1225,10 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         if (!heldItem.isEmpty()) {
             compound.put("SentryHeldItem", heldItem.save(new CompoundTag()));
         }
-
         CompoundTag ammoTag = new CompoundTag();
         ContainerHelper.saveAllItems(ammoTag, this.attachedAmmoBoxes);
         compound.put("SentryAmmoBoxes", ammoTag);
         compound.putInt("TargetId", this.syncedTargetId);
-
         CompoundTag angles = new CompoundTag();
         angles.putFloat("Base", baseAngle.getValue());
         angles.putFloat("Lower", lowerArmAngle.getValue());
@@ -1141,10 +1241,11 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         if (this.connectedFireControlPos != null) {
             compound.put("FireControlPos", NbtUtils.writeBlockPos(this.connectedFireControlPos));
         }
-
         if (this.cachedTargetBlock != null) {
             compound.put("TargetBlock", NbtUtils.writeBlockPos(this.cachedTargetBlock));
         }
+        color.ifPresent(dyeColor -> NBTHelper.writeEnum(compound, "Dye", dyeColor));
+
     }
 
     @Override
@@ -1164,7 +1265,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
 
         @Override
         public int getSlots() {
-            return attachedAmmoBoxes.size(); 
+            return attachedAmmoBoxes.size();
         }
 
         @Override
@@ -1211,31 +1312,26 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             ItemStack inSlot = getStackInSlot(slot);
             if (inSlot.isEmpty()) return ItemStack.EMPTY;
 
- 
             if (inSlot.getItem() instanceof IAmmoBox iBox) {
- 
+
                 if (iBox.isCreative(inSlot) || iBox.getAmmoCount(inSlot) > 0) {
-                    return ItemStack.EMPTY; 
+                    return ItemStack.EMPTY;
                 }
             } else {
- 
             }
             int extractCount = Math.min(inSlot.getCount(), amount);
             if (extractCount <= 0) return ItemStack.EMPTY;
 
             ItemStack extracted = inSlot.copy();
             extracted.setCount(extractCount);
-
             if (!simulate) {
                 inSlot.shrink(extractCount);
                 if (inSlot.isEmpty()) {
                     attachedAmmoBoxes.set(slot, ItemStack.EMPTY);
                 }
-
                 setChanged();
                 sendData();
             }
-
             return extracted;
         }
 
@@ -1246,18 +1342,45 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
 
         @Override
         public boolean isItemValid(int slot, ItemStack stack) {
- 
+
             return stack.getItem() instanceof IAmmoBox;
         }
 
         @Override
         public void setStackInSlot(int slot, ItemStack stack) {
- 
+
             if (slot >= 0 && slot < attachedAmmoBoxes.size()) {
                 attachedAmmoBoxes.set(slot, stack);
                 setChanged();
                 sendData();
             }
+        }
+    }
+
+    private class SentryValueBoxTransform extends ValueBoxTransform.Sided {
+
+        @Override
+        protected boolean isSideActive(BlockState state, Direction direction) {
+            return !direction.getAxis().isVertical();
+        }
+
+        @Override
+        public Vec3 getLocalOffset(LevelAccessor level, BlockPos pos, BlockState state) {
+            boolean isCeiling = state.getValue(SentryArmBlock.CEILING);
+            int yPos = isCeiling ? 16 - 3 : 3;
+            Vec3 location = VecHelper.voxelSpace(8, yPos, 15.5);
+            location = VecHelper.rotateCentered(location, AngleHelper.horizontalAngle(getSide()), Direction.Axis.Y);
+
+            return location;
+        }
+        @Override
+        protected Vec3 getSouthLocation() {
+            return Vec3.ZERO;
+        }
+
+        @Override
+        public float getScale() {
+            return 0.5f;
         }
     }
 

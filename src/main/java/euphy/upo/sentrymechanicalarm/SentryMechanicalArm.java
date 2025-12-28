@@ -1,5 +1,6 @@
 package euphy.upo.sentrymechanicalarm;
 
+import com.mojang.logging.LogUtils;
 import euphy.upo.sentrymechanicalarm.datagen.DataGenerators;
 import euphy.upo.sentrymechanicalarm.network.NetworkHandler;
 import euphy.upo.sentrymechanicalarm.registry.*;
@@ -10,12 +11,15 @@ import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import org.slf4j.Logger;
 
 
 @Mod(SentryMechanicalArm.MODID)
 public class SentryMechanicalArm
 {
     public static final String MODID = "sentrymechanicalarm";
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     public SentryMechanicalArm(FMLJavaModLoadingContext context)
     {
         IEventBus modEventBus = context.getModEventBus();

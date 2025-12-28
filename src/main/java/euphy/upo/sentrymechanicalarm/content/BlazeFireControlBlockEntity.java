@@ -1,6 +1,5 @@
 package euphy.upo.sentrymechanicalarm.content;
 
-import com.simibubi.create.content.processing.burner.BlazeBurnerBlock;
 import com.simibubi.create.foundation.blockEntity.SmartBlockEntity;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import net.createmod.catnip.animation.LerpedFloat;
@@ -34,10 +33,19 @@ import java.util.List;
 
 public class BlazeFireControlBlockEntity extends SmartBlockEntity {
 
+    private static final String[] EMOTICONS = {
+            "(OwO)", "(>_<)", "^_^", "(='X'=)", "(*^▽^*)", "(¬_¬ )", "(ToT)", "(o_o)"
+    };
+
+    public String currentEmoticon = "";
+    public int emoticonTimer = 0;
+    public final int MAX_EMOTICON_TIME = 60;
+
+    public int msgColor = 0xFFFFFF;
+    public float msgOffsetX = 0;
+    public float msgOffsetZ = 0;
     public final LerpedFloat headAngle = LerpedFloat.angular();
     public final LerpedFloat headAnimation = LerpedFloat.linear();
-
-
     public final ItemStackHandler inventory = new ItemStackHandler(1) {
         @Override
         public boolean isItemValid(int slot, @NotNull ItemStack stack) {
@@ -68,12 +76,27 @@ public class BlazeFireControlBlockEntity extends SmartBlockEntity {
     protected void read(CompoundTag compound, boolean clientPacket) {
         super.read(compound, clientPacket);
         inventory.deserializeNBT(compound.getCompound("Inventory"));
+        this.currentEmoticon = compound.getString("Emoticon");
+        this.emoticonTimer = compound.getInt("EmoticonTimer");
+        this.msgOffsetX = compound.getFloat("MsgX");
+        this.msgOffsetZ = compound.getFloat("MsgZ");
+        if (compound.contains("MsgColor")) {
+            this.msgColor = compound.getInt("MsgColor");
+        } else {
+            this.msgColor = 0xFFFFFF;
+        }
     }
 
     @Override
     protected void write(CompoundTag compound, boolean clientPacket) {
         super.write(compound, clientPacket);
         compound.put("Inventory", inventory.serializeNBT());
+        compound.putString("Emoticon", currentEmoticon);
+        compound.putInt("EmoticonTimer", emoticonTimer);
+        compound.putFloat("MsgX", msgOffsetX);
+        compound.putFloat("MsgZ", msgOffsetZ);
+        compound.putInt("MsgColor", msgColor);
+
     }
 
     @Override
@@ -107,8 +130,8 @@ public class BlazeFireControlBlockEntity extends SmartBlockEntity {
         if (level == null) return;
 
         BlockPos.betweenClosedStream(
-                this.worldPosition.offset(-3, -3, -3),
-                this.worldPosition.offset(3, 3, 3)
+                this.worldPosition.offset(-6, -6, -6),
+                this.worldPosition.offset(6, 6, 6)
         ).forEach(pos -> {
             if (level.getBlockEntity(pos) instanceof SentryArmBlockEntity sentry) {
                 BlockPos connectedPos = sentry.getConnectedFireControl();
@@ -128,11 +151,35 @@ public class BlazeFireControlBlockEntity extends SmartBlockEntity {
     public void tick() {
         super.tick();
 
+        if (emoticonTimer > 0) {
+            emoticonTimer--;
+        }
+
+        if (!level.isClientSide) {
+            if (emoticonTimer == 0 && !currentEmoticon.isEmpty()) {
+                currentEmoticon = "";
+                notifyUpdate();
+            }
+        }
+
         if (level.isClientSide) {
             tickAnimation();
             spawnIdleParticles();
         }
     }
+
+    public void showRandomEmoticon() {
+        if (level == null || level.isClientSide) return;
+
+        this.currentEmoticon = EMOTICONS[level.random.nextInt(EMOTICONS.length)];
+        this.emoticonTimer = 60;
+        this.msgOffsetX = (level.random.nextFloat() - 0.5f) * 0.6f;
+        this.msgOffsetZ = (level.random.nextFloat() - 0.5f) * 0.6f;
+        this.msgColor = Mth.hsvToRgb(level.random.nextFloat(), 0.8f, 1.0f);
+
+        notifyUpdate();
+    }
+
 
     @OnlyIn(Dist.CLIENT)
     protected void tickAnimation() {
@@ -157,16 +204,22 @@ public class BlazeFireControlBlockEntity extends SmartBlockEntity {
     protected void spawnIdleParticles() {
  
         RandomSource random = level.getRandom();
-        if (random.nextInt(100) == 0) {
-            level.addParticle(ParticleTypes.LARGE_SMOKE,
-                    worldPosition.getX() + 0.5 + random.nextGaussian() * 0.1,
-                    worldPosition.getY() + 1.0,
-                    worldPosition.getZ() + 0.5 + random.nextGaussian() * 0.1,
+        if (random.nextInt(7) == 0) {
+            level.addParticle(ParticleTypes.END_ROD,
+                    worldPosition.getX() + 0.5 + random.nextGaussian() * 0.3,
+                    worldPosition.getY() + 0.5 + random.nextGaussian() * 0.5,
+                    worldPosition.getZ() + 0.5 + random.nextGaussian() * 0.3,
                     0, 0, 0);
         }
     }
-
-    public BlazeBurnerBlock.HeatLevel getHeatLevel() {
-        return BlazeBurnerBlock.HeatLevel.SMOULDERING;
+    public boolean isWhitelist() {
+        ItemStack stack = inventory.getStackInSlot(0);
+        if (!stack.isEmpty() && stack.getItem() instanceof FireControlClipboardItem) {
+            CompoundTag tag = stack.getOrCreateTag();
+            return tag.getBoolean("WhitelistMode");
+        }
+        return false;
     }
+
+
 }

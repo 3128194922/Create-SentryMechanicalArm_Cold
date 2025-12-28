@@ -13,21 +13,26 @@ import java.util.List;
 public class FireControlMenu extends AbstractContainerMenu {
 
     private final List<String> targetList;
+    public boolean isWhitelist;
 
- 
     public FireControlMenu(int containerId, Inventory playerInventory, FriendlyByteBuf extraData) {
         super(SentryRegistry.FIRE_CONTROL_MENU.get(), containerId);
-        this.targetList = new ArrayList<>();
 
-        int size = extraData.readVarInt(); 
+        extraData.readBlockPos();
+
+        this.isWhitelist = extraData.readBoolean();
+
+        this.targetList = new ArrayList<>();
+        int size = extraData.readVarInt();
         for (int i = 0; i < size; i++) {
-            this.targetList.add(extraData.readUtf()); 
+            this.targetList.add(extraData.readUtf());
         }
     }
 
-    public FireControlMenu(int containerId, Inventory playerInventory, List<String> targetList) {
+    public FireControlMenu(int containerId, Inventory playerInventory, List<String> targetList, boolean isWhitelist) {
         super(SentryRegistry.FIRE_CONTROL_MENU.get(), containerId);
         this.targetList = targetList;
+        this.isWhitelist = isWhitelist;
     }
 
     public List<String> getTargetList() {
@@ -41,6 +46,7 @@ public class FireControlMenu extends AbstractContainerMenu {
 
     @Override
     public boolean stillValid(Player player) {
-        return true;
+        return player.getMainHandItem().getItem() instanceof FireControlClipboardItem ||
+                player.getOffhandItem().getItem() instanceof FireControlClipboardItem;
     }
 }

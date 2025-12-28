@@ -35,24 +35,20 @@ public class SentryLinkPacket {
             if (player == null) return;
             Level level = player.level();
 
- 
-            if (posA.distSqr(posB) > 100) return; 
-
+            if (posA.distSqr(posB) > 100) return;
  
             if (level.getBlockEntity(posA) instanceof SentryArmBlockEntity sentry) {
  
- 
-                if (posA.distSqr(posB) <= 9.0) { 
+                if (posA.distSqr(posB) <= 36.0) {
                     sentry.setConnectedFireControl(posB);
  
                     level.playSound(null, posA, net.minecraft.sounds.SoundEvents.EXPERIENCE_ORB_PICKUP, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f);
                 } else {
- 
                     player.displayClientMessage(Component.translatable("message.sentrymechanicalarm.distance_too_far"), true);
                 }
             } else if (level.getBlockEntity(posB) instanceof SentryArmBlockEntity sentry) {
  
-                if (posB.distSqr(posA) <= 9.0) {
+                if (posB.distSqr(posA) <= 36.0) {
                     sentry.setConnectedFireControl(posA);
                     level.playSound(null, posB, net.minecraft.sounds.SoundEvents.EXPERIENCE_ORB_PICKUP, net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 1.0f);
                 } else {

@@ -1,21 +1,12 @@
 package euphy.upo.sentrymechanicalarm.content;
 
-import com.simibubi.create.AllBlocks;
-import com.simibubi.create.content.kinetics.belt.transport.TransportedItemStack;
-import com.simibubi.create.content.kinetics.deployer.DeployerFakePlayer;
-import com.simibubi.create.content.logistics.depot.DepotBlockEntity;
-import com.tacz.guns.api.item.IAmmo;
-import com.tacz.guns.api.item.IAmmoBox;
-import euphy.upo.sentrymechanicalarm.registry.SentryRegistry;
 import euphy.upo.sentrymechanicalarm.util.SentryTargetSavedData;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -27,17 +18,11 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraftforge.common.capabilities.ForgeCapabilities;
-import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.Random;
 
 @Mod.EventBusSubscriber(modid = "sentrymechanicalarm", bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class SentryInteractionEvents {

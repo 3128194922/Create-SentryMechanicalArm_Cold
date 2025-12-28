@@ -3,12 +3,12 @@ package euphy.upo.sentrymechanicalarm.datagen;
 import com.mojang.serialization.JsonOps;
 import com.simibubi.create.AllBlocks;
 import com.simibubi.create.AllItems;
-import com.simibubi.create.content.kinetics.saw.CuttingRecipe;
+import com.simibubi.create.content.fluids.transfer.FillingRecipe;
 import com.simibubi.create.content.kinetics.deployer.DeployerApplicationRecipe;
 import com.simibubi.create.content.kinetics.press.PressingRecipe;
+import com.simibubi.create.content.kinetics.saw.CuttingRecipe;
 import com.simibubi.create.content.processing.recipe.ProcessingRecipeBuilder;
 import com.simibubi.create.content.processing.sequenced.SequencedAssemblyRecipeBuilder;
-import com.simibubi.create.content.fluids.transfer.FillingRecipe;
 import euphy.upo.sentrymechanicalarm.registry.SentryRegistry;
 import net.minecraft.data.PackOutput;
 import net.minecraft.data.recipes.*;
@@ -20,12 +20,13 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.level.material.Fluids;
-import net.minecraftforge.common.crafting.PartialNBTIngredient;
-import net.minecraftforge.common.crafting.StrictNBTIngredient;
 import net.minecraftforge.common.crafting.conditions.IConditionBuilder;
 import net.minecraftforge.registries.ForgeRegistries;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
 public class SentryRecipeProvider extends RecipeProvider implements IConditionBuilder {

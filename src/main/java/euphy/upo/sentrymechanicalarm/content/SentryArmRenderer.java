@@ -6,33 +6,28 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.logging.LogUtils;
 import com.mojang.math.Axis;
 import com.simibubi.create.AllPartialModels;
-import com.simibubi.create.content.contraptions.behaviour.MovementContext;
-import com.simibubi.create.content.contraptions.render.ContraptionMatrices;
-import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntityRenderer;
 import com.simibubi.create.content.kinetics.mechanicalArm.ArmBlock;
-import com.simibubi.create.content.trains.entity.CarriageContraption;
 import com.simibubi.create.foundation.virtualWorld.VirtualRenderWorld;
 import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.item.IGun;
 import com.tacz.guns.client.model.BedrockGunModel;
-import com.tacz.guns.client.model.IFunctionalRenderer;
 import com.tacz.guns.client.model.bedrock.BedrockPart;
-import com.tacz.guns.client.model.bedrock.ModelRendererWrapper;
-import com.tacz.guns.client.model.functional.ShellRender;
 import com.tacz.guns.client.resource.GunDisplayInstance;
-import com.tacz.guns.client.resource.pojo.TransformScale;
 import com.tacz.guns.client.resource.pojo.display.gun.MuzzleFlash;
-import com.tacz.guns.client.resource.pojo.display.gun.ShellEjection;
-import com.tacz.guns.resource.index.CommonGunIndex;
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
 import dev.engine_room.flywheel.lib.transform.PoseTransformStack;
 import dev.engine_room.flywheel.lib.transform.TransformStack;
 import euphy.upo.sentrymechanicalarm.compat.VSCompat;
+import euphy.upo.sentrymechanicalarm.registry.SentryPartialModels;
+import euphy.upo.sentrymechanicalarm.util.ArmSoundHelper;
 import euphy.upo.sentrymechanicalarm.util.SentryShellManager;
+import euphy.upo.sentrymechanicalarm.util.SentrySpriteShifts;
 import net.createmod.catnip.data.Iterate;
 import net.createmod.catnip.render.CachedBuffers;
+import net.createmod.catnip.render.SpriteShiftEntry;
 import net.createmod.catnip.render.SuperByteBuffer;
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
@@ -42,11 +37,11 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
@@ -76,11 +71,7 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
     protected void renderSafe(SentryArmBlockEntity be, float pt, PoseStack ms, MultiBufferSource buffer, int light, int overlay) {
 
         BlockState blockState = be.getBlockState();
-        SuperByteBuffer cog = CachedBuffers.partial(AllPartialModels.ARM_COG, blockState);
-        Direction.Axis axis = Direction.Axis.Y;
-        float angle = getAngleForBe(be, be.getBlockPos(), axis);
-        kineticRotationTransform(cog, be, axis, angle, light);
-        cog.renderInto(ms, buffer.getBuffer(RenderType.solid()));
+        renderCog(be, ms, buffer, light, be.color);
 
         ItemStack item = be.getHeldItem();
         boolean hasItem = !item.isEmpty();
@@ -115,7 +106,8 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         if (inverted) {
             msr.rotateXDegrees(180.0F);
         }
-        this.renderArm(builder, ms, msLocal, msr, blockState, color, baseAngle, lowerArmAngle, upperArmAngle, headAngle, inverted, hasItem, isBlockItem, light);
+
+        this.renderArm(builder, ms, msLocal, msr, blockState, color, baseAngle, lowerArmAngle, upperArmAngle, headAngle, inverted, hasItem, isBlockItem, light, be.color);
 
         if (hasItem) {
             ms.pushPose();
@@ -136,13 +128,6 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
 
                 float armScale = 1.5f;
                 msLocal.scale(armScale, armScale, armScale);
-                /*
-                Optional<GunDisplayInstance> debugDisplayOpt = TimelessAPI.getGunDisplay(item);
-                debugDisplayOpt.ifPresent(display -> {
- 
-                    debugShellPoint(be, display, msLocal);
-                });
-                 */
                 if (be.shouldEjectShell()) {
                     Optional<GunDisplayInstance> displayOpt = TimelessAPI.getGunDisplay(item);
                     displayOpt.ifPresent(display -> {
@@ -175,8 +160,24 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         }
     }
 
+    private void renderCog(SentryArmBlockEntity be, PoseStack ms, MultiBufferSource buffer, int light, Optional<DyeColor> color) {
+        BlockState blockState = be.getBlockState();
+        SuperByteBuffer cog = CachedBuffers.partial(SentryPartialModels.SENTRU_COG, blockState);
+
+        Direction.Axis axis = Direction.Axis.Y;
+        float angle = getAngleForBe(be, be.getBlockPos(), axis);
+
+        kineticRotationTransform(cog, be, axis, angle, light);
+
+        applyDye(cog, color, SentrySpriteShifts.COG_TEXTURES);
+
+        cog.renderInto(ms, buffer.getBuffer(RenderType.solid()));
+    }
+
     private void renderMuzzleFlash(SentryArmBlockEntity sentry, ItemStack stack, PoseStack ms, MultiBufferSource buffer) {
- 
+        boolean isSilenced = ArmSoundHelper.isSilenced(stack);
+        if (isSilenced) return;
+
         long timeSinceShoot = System.currentTimeMillis() - sentry.getLastShootTime();
         if (timeSinceShoot < 0 || timeSinceShoot > 50) return;
  
@@ -307,7 +308,7 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         }
     }
 
-    private void applyScaleTransform(PoseStack poseStack, Vector3f scale) {
+    private static void applyScaleTransform(PoseStack poseStack, Vector3f scale) {
         if (scale != null) {
             poseStack.translate(0.0F, 1.5F, 0.0F);
             poseStack.scale(scale.x(), scale.y(), scale.z());
@@ -352,14 +353,21 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
                 .endVertex();
     }
 
-    private void renderArm(VertexConsumer builder, PoseStack ms, PoseStack msLocal, TransformStack msr, BlockState blockState, int color, float baseAngle, float lowerArmAngle, float upperArmAngle, float headAngle, boolean inverted, boolean hasItem, boolean isBlockItem, int light) {
+    private void renderArm(VertexConsumer builder, PoseStack ms, PoseStack msLocal, TransformStack msr, BlockState blockState, int color, float baseAngle, float lowerArmAngle, float upperArmAngle, float headAngle, boolean inverted, boolean hasItem, boolean isBlockItem, int light, Optional<DyeColor> dyeColor) {
  
-        SuperByteBuffer base = CachedBuffers.partial(AllPartialModels.ARM_BASE, blockState).light(light);
+        SuperByteBuffer base = CachedBuffers.partial(SentryPartialModels.SENTRU_BASE, blockState).light(light);
         SuperByteBuffer lowerBody = CachedBuffers.partial(AllPartialModels.ARM_LOWER_BODY, blockState).light(light);
         SuperByteBuffer upperBody = CachedBuffers.partial(AllPartialModels.ARM_UPPER_BODY, blockState).light(light);
         SuperByteBuffer claw = CachedBuffers.partial(AllPartialModels.ARM_CLAW_BASE, blockState).light(light);
         SuperByteBuffer upperClawGrip = CachedBuffers.partial(AllPartialModels.ARM_CLAW_GRIP_UPPER, blockState).light(light);
         SuperByteBuffer lowerClawGrip = CachedBuffers.partial(AllPartialModels.ARM_CLAW_GRIP_LOWER, blockState).light(light);
+
+        applyDye(base, dyeColor, SentrySpriteShifts.BASE_TEXTURES);
+        applyDye(lowerBody, dyeColor, SentrySpriteShifts.ARM_TEXTURES);
+        applyDye(upperBody, dyeColor, SentrySpriteShifts.ARM_TEXTURES);
+        applyDye(claw, dyeColor, SentrySpriteShifts.ARM_TEXTURES);
+        applyDye(upperClawGrip, dyeColor, SentrySpriteShifts.ARM_TEXTURES);
+        applyDye(lowerClawGrip, dyeColor, SentrySpriteShifts.ARM_TEXTURES);
 
         transformBase(msr, baseAngle);
         base.transform(msLocal).renderInto(ms, builder);
@@ -384,6 +392,18 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
             msLocal.popPose();
         }
     }
+
+    private static void applyDye(SuperByteBuffer buffer, Optional<DyeColor> color, Map<DyeColor, SpriteShiftEntry> shiftMap) {
+        color.ifPresent(dye -> {
+            SpriteShiftEntry entry = shiftMap.get(dye);
+            if (entry != null) {
+                buffer.shiftUV(entry);
+            }
+
+        });
+    }
+
+
 
     private static void transformClawHalf(TransformStack msr, boolean hasItem, boolean isBlockItem, int flip) {
         msr.translate(0.0F, -flip * (hasItem ? (isBlockItem ? 0.1875F : 0.078125F) : 0.0625F), -0.375F);
@@ -526,13 +546,15 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
                 if (context.blockEntityData.contains("Speed")) {
                     newBE.setSpeed(context.blockEntityData.getFloat("Speed"));
                 }
- 
                 if (context.blockEntityData.contains("SentryHeldItem")) {
                     newBE.setHeldItem(ItemStack.of(context.blockEntityData.getCompound("SentryHeldItem")));
                 }
- 
                 if (context.blockEntityData.contains("SentryAmmoBoxes")) {
                     net.minecraft.world.ContainerHelper.loadAllItems(context.blockEntityData.getCompound("SentryAmmoBoxes"), newBE.attachedAmmoBoxes);
+                }
+                if (context.blockEntityData.contains("color")) {
+                    int colorId = context.blockEntityData.getInt("color");
+                    newBE.color = Optional.of(DyeColor.byId(colorId));
                 }
             }
             context.temporaryData = newBE;
@@ -546,7 +568,12 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         float upperArmAngle = virtualBE.upperArmAngle.getValue(pt) - 90.0F;
         float headAngle = virtualBE.headAngle.getValue(pt);
         boolean inverted = blockState.getValue(ArmBlock.CEILING);
-        int light = 15728880; 
+        int light = net.minecraft.client.renderer.LightTexture.FULL_BRIGHT;
+        if (context.contraption.entity != null) {
+            Vec3 localPos = net.createmod.catnip.math.VecHelper.getCenterOf(context.localPos);
+            Vec3 globalPos = context.contraption.entity.toGlobalVector(localPos, pt);
+            light = net.minecraft.client.renderer.LevelRenderer.getLightColor(context.world, BlockPos.containing(globalPos));
+        }
 
         ItemStack heldItem = virtualBE.getHeldItem();
         boolean hasItem = !heldItem.isEmpty();
@@ -568,58 +595,65 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         }
         ms.pushPose();
         transformBase(msr, baseAngle);
-        CachedBuffers.partial(AllPartialModels.ARM_BASE, blockState)
+        SuperByteBuffer baseBuffer = CachedBuffers.partial(SentryPartialModels.SENTRU_BASE, blockState);
+
+        applyDye(baseBuffer, virtualBE.color, SentrySpriteShifts.BASE_TEXTURES);
+
+        baseBuffer
                 .light(light)
                 .transform(ms)
                 .renderInto(matrices.getViewProjection(), builder);
         ms.popPose();
 
         ms.pushPose();
-        transformBase(msr, baseAngle); 
-        transformLowerArm(msr, lowerArmAngle); 
-
-        CachedBuffers.partial(AllPartialModels.ARM_LOWER_BODY, blockState)
+        transformBase(msr, baseAngle);
+        transformLowerArm(msr, lowerArmAngle);
+        SuperByteBuffer lowerBodyBuffer = CachedBuffers.partial(AllPartialModels.ARM_LOWER_BODY, blockState);
+        applyDye(lowerBodyBuffer, virtualBE.color, SentrySpriteShifts.ARM_TEXTURES);
+        lowerBodyBuffer
                 .light(light)
                 .transform(ms)
                 .renderInto(matrices.getViewProjection(), builder);
- 
+
         transformUpperArm(msr, upperArmAngle);
 
-        CachedBuffers.partial(AllPartialModels.ARM_UPPER_BODY, blockState)
+        SuperByteBuffer upperBodyBuffer = CachedBuffers.partial(AllPartialModels.ARM_UPPER_BODY, blockState);
+        applyDye(upperBodyBuffer, virtualBE.color, SentrySpriteShifts.ARM_TEXTURES);
+        upperBodyBuffer
                 .light(light)
                 .transform(ms)
                 .renderInto(matrices.getViewProjection(), builder);
 
- 
         transformHead(msr, headAngle);
 
-        if (inverted) msr.rotateZDegrees(180.0F); 
-
-        CachedBuffers.partial(AllPartialModels.ARM_CLAW_BASE, blockState)
+        if (inverted) msr.rotateZDegrees(180.0F);
+        SuperByteBuffer clawBaseBuffer = CachedBuffers.partial(AllPartialModels.ARM_CLAW_BASE, blockState);
+        applyDye(clawBaseBuffer, virtualBE.color, SentrySpriteShifts.ARM_TEXTURES);
+        clawBaseBuffer
                 .light(light)
                 .transform(ms)
                 .renderInto(matrices.getViewProjection(), builder);
 
         org.joml.Matrix4f clawTipWorldMatrix = null;
- 
+
         for (int flip : net.createmod.catnip.data.Iterate.positiveAndNegative) {
             ms.pushPose();
             transformClawHalf(msr, hasItem, isBlockItem, flip);
             if (flip > 0) {
                 clawTipWorldMatrix = new org.joml.Matrix4f(matrices.getWorld());
                 clawTipWorldMatrix.mul(ms.last().pose());
-
             }
 
             PartialModel gripModel = (flip > 0) ? AllPartialModels.ARM_CLAW_GRIP_LOWER : AllPartialModels.ARM_CLAW_GRIP_UPPER;
 
-            CachedBuffers.partial(gripModel, blockState)
+            SuperByteBuffer gripBuffer = CachedBuffers.partial(gripModel, blockState);
+            applyDye(gripBuffer, virtualBE.color, SentrySpriteShifts.ARM_TEXTURES);
+            gripBuffer
                     .light(light)
                     .transform(ms)
                     .renderInto(matrices.getViewProjection(), builder);
             ms.popPose();
         }
-
 
         ms.popPose();
  
@@ -631,7 +665,12 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         float cogAngle = (time * speed * 3f / 10f) % 360;
         ms.mulPose(com.mojang.math.Axis.YP.rotationDegrees(cogAngle));
         msr.uncenter();
-        CachedBuffers.partial(AllPartialModels.ARM_COG, blockState)
+
+        SuperByteBuffer cogBuffer = CachedBuffers.partial(SentryPartialModels.SENTRU_COG, blockState);
+
+        applyDye(cogBuffer, virtualBE.color, SentrySpriteShifts.COG_TEXTURES);
+
+        cogBuffer
                 .light(light)
                 .transform(ms)
                 .renderInto(matrices.getViewProjection(), builder);
@@ -656,6 +695,11 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         ItemStack heldItem = virtualBE.getHeldItem();
         if (heldItem.isEmpty()) return;
 
+        boolean isCeiling = false;
+        if (context != null && context.state != null && context.state.hasProperty(SentryArmBlock.CEILING)) {
+            isCeiling = context.state.getValue(SentryArmBlock.CEILING);
+        }
+
         boolean isBlockItem = Minecraft.getInstance().getItemRenderer().getModel(heldItem, renderWorld, null, 0).isGui3d();
 
         PoseStack gunStack = new PoseStack();
@@ -669,7 +713,12 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
             ResourceLocation gunId = ((IGun) heldItem.getItem()).getGunId(heldItem);
             gunStack.mulPose(Axis.XP.rotationDegrees(-90));
 
-            gunStack.translate(0, 0.42f, 0.3f);
+            if (isCeiling) {
+                gunStack.mulPose(Axis.ZP.rotationDegrees(180.0F));
+            }
+            float yOffset = isCeiling ? 0.1f : 0.42f;
+
+            gunStack.translate(0, yOffset, 0.3f);
 
             if (gunId.getPath().contains("minigun")) {
                 gunStack.mulPose(Axis.XP.rotationDegrees(-90));
@@ -684,8 +733,8 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         Quaternionf worldRot = new Quaternionf();
         finalMatrix.getUnnormalizedRotation(worldRot);
 
-        net.minecraft.client.Camera camera = Minecraft.getInstance().gameRenderer.getMainCamera();
-        net.minecraft.world.phys.Vec3 cameraPos = camera.getPosition();
+        Camera camera = Minecraft.getInstance().gameRenderer.getMainCamera();
+        Vec3 cameraPos = camera.getPosition();
 
         double renderX = worldPos.x() - cameraPos.x;
         double renderY = worldPos.y() - cameraPos.y;
@@ -709,6 +758,7 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
  
         if (isGun) {
             viewStack.scale(1.5f, 1.5f, 1.5f);
+
         } else {
             float s = isBlockItem ? 0.5F : 0.625F;
             viewStack.scale(s, s, s);
@@ -718,7 +768,7 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         try {
             Minecraft.getInstance().getItemRenderer().renderStatic(
                     heldItem,
-                    isGun ? net.minecraft.world.item.ItemDisplayContext.THIRD_PERSON_RIGHT_HAND : net.minecraft.world.item.ItemDisplayContext.FIXED,
+                    isGun ? ItemDisplayContext.THIRD_PERSON_RIGHT_HAND : ItemDisplayContext.FIXED,
                     light,
                     OverlayTexture.NO_OVERLAY,
                     viewStack,
@@ -726,6 +776,12 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
                     renderWorld,
                     0
             );
+
+            if (isGun) {
+                renderMuzzleFlashStatic(virtualBE, heldItem, viewStack, cleanBuffer);
+            }
+
+
             cleanBuffer.endBatch();
         } catch (Exception e) {
             e.printStackTrace();
@@ -738,5 +794,129 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
             RenderSystem.setShader(net.minecraft.client.renderer.GameRenderer::getPositionColorShader);
         }
     }
+
+
+    private static void renderMuzzleFlashStatic(SentryArmBlockEntity sentry, ItemStack stack, PoseStack ms, MultiBufferSource buffer) {
+        boolean isSilenced = ArmSoundHelper.isSilenced(stack);
+        if (isSilenced) return;
+
+        long timeSinceShoot = System.currentTimeMillis() - sentry.getLastShootTime();
+        if (timeSinceShoot < 0 || timeSinceShoot > 50) return;
+
+        Optional<GunDisplayInstance> displayOpt = TimelessAPI.getGunDisplay(stack);
+        if (displayOpt.isEmpty()) return;
+        GunDisplayInstance display = displayOpt.get();
+
+        BedrockGunModel gunModel = display.getGunModel();
+        if (gunModel == null) return;
+
+        MuzzleFlash muzzleFlash = display.getMuzzleFlash();
+        if (muzzleFlash == null) return;
+
+        ms.pushPose();
+
+        ms.translate(0, 1.5, 0);
+        ms.scale(-1.0f, -1.0f, 1.0f);
+
+        Vector3f transformScale = new Vector3f(1.0f, 1.0f, 1.0f);
+        if (display.getTransform() != null && display.getTransform().getScale() != null) {
+            transformScale = display.getTransform().getScale().getThirdPerson();
+        }
+
+        applyPositioningNodeTransformStatic(gunModel.getThirdPersonHandOriginPath(), ms, transformScale);
+
+        applyScaleTransformStatic(ms, transformScale);
+
+        List<BedrockPart> path = gunModel.getMuzzleFlashPosPath();
+        if (path != null) {
+            for (BedrockPart part : path) {
+                part.translateAndRotateAndScale(ms);
+            }
+        }
+
+        float flashScale = (float) (0.5 * muzzleFlash.getScale());
+        float randomRotate = (float) (Math.random() * 360.0);
+        ms.mulPose(Axis.ZP.rotationDegrees(randomRotate));
+        ms.scale(flashScale, flashScale, flashScale);
+
+        VertexConsumer consumerBg = buffer.getBuffer(RenderType.entityTranslucent(muzzleFlash.getTexture()));
+        drawCrossQuadStatic(ms, consumerBg);
+
+        VertexConsumer consumerFg = buffer.getBuffer(RenderType.energySwirl(muzzleFlash.getTexture(), 0, 0));
+        ms.pushPose();
+        ms.scale(0.5f, 0.5f, 0.5f);
+        drawCrossQuadStatic(ms, consumerFg);
+        ms.popPose();
+
+        ms.popPose();
+    }
+
+    private static void applyPositioningNodeTransformStatic(List<BedrockPart> nodePath, PoseStack poseStack, Vector3f scale) {
+        if (nodePath != null) {
+            if (scale == null) {
+                scale = new Vector3f(1.0F, 1.0F, 1.0F);
+            }
+            poseStack.translate(0.0F, 1.5F, 0.0F);
+            for (int i = nodePath.size() - 1; i >= 0; --i) {
+                BedrockPart t = nodePath.get(i);
+                poseStack.mulPose(Axis.XN.rotation(t.xRot));
+                poseStack.mulPose(Axis.YN.rotation(t.yRot));
+                poseStack.mulPose(Axis.ZN.rotation(t.zRot));
+                if (t.getParent() != null) {
+                    poseStack.translate(-t.x * scale.x() / 16.0F, -t.y * scale.y() / 16.0F, -t.z * scale.z() / 16.0F);
+                } else {
+                    poseStack.translate(-t.x * scale.x() / 16.0F, (1.5F - t.y / 16.0F) * scale.y(), -t.z * scale.z() / 16.0F);
+                }
+            }
+            poseStack.translate(0.0F, -1.5F, 0.0F);
+        }
+    }
+
+    private static void applyScaleTransformStatic(PoseStack poseStack, Vector3f scale) {
+        if (scale != null) {
+            poseStack.translate(0.0F, 1.5F, 0.0F);
+            poseStack.scale(scale.x(), scale.y(), scale.z());
+            poseStack.translate(0.0F, -1.5F, 0.0F);
+        }
+    }
+
+    private static void drawCrossQuadStatic(PoseStack ms, VertexConsumer consumer) {
+        Matrix4f pose = ms.last().pose();
+        Matrix3f normal = ms.last().normal();
+        float size = 1.0f;
+        float min = -size;
+        float max = size;
+        float u0 = 0, u1 = 1;
+        float v0 = 0, v1 = 1;
+
+        vertexStatic(consumer, pose, normal, min, max, 0, u0, v1);
+        vertexStatic(consumer, pose, normal, max, max, 0, u1, v1);
+        vertexStatic(consumer, pose, normal, max, min, 0, u1, v0);
+        vertexStatic(consumer, pose, normal, min, min, 0, u0, v0);
+
+        ms.pushPose();
+        ms.mulPose(Axis.YP.rotationDegrees(90));
+        Matrix4f pose2 = ms.last().pose();
+        Matrix3f normal2 = ms.last().normal();
+
+        vertexStatic(consumer, pose2, normal2, min, max, 0, u0, v1);
+        vertexStatic(consumer, pose2, normal2, max, max, 0, u1, v1);
+        vertexStatic(consumer, pose2, normal2, max, min, 0, u1, v0);
+        vertexStatic(consumer, pose2, normal2, min, min, 0, u0, v0);
+
+        ms.popPose();
+    }
+
+    private static void vertexStatic(VertexConsumer consumer, Matrix4f pose, Matrix3f normal, float x, float y, float z, float u, float v) {
+        consumer.vertex(pose, x, y, z)
+                .color(255, 255, 255, 255)
+                .uv(u, v)
+                .overlayCoords(OverlayTexture.NO_OVERLAY)
+                .uv2(15728880)
+                .normal(normal, 0, 1, 0)
+                .endVertex();
+    }
+
+
 
 }

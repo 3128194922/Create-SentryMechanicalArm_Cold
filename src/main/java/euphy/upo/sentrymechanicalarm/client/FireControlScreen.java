@@ -2,9 +2,13 @@ package euphy.upo.sentrymechanicalarm.client;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.simibubi.create.foundation.gui.AllGuiTextures;
+import com.simibubi.create.foundation.gui.AllIcons;
+import com.simibubi.create.foundation.gui.widget.IconButton;
 import euphy.upo.sentrymechanicalarm.content.FireControlMenu;
 import euphy.upo.sentrymechanicalarm.network.NetworkHandler;
 import euphy.upo.sentrymechanicalarm.network.PacketClearTarget;
+import euphy.upo.sentrymechanicalarm.network.PacketToggleClipboardMode;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
@@ -22,18 +26,16 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
     private static final ResourceLocation BOOK_TEXTURE = new ResourceLocation("textures/gui/book.png");
     private static final int BTN_WIDTH = 23;
     private static final int BTN_HEIGHT = 13;
- 
- 
+    private IconButton modeButton;
+    private boolean clientWhitelistState;
     private static final int LIST_START_X = 70;
     private static final int LIST_START_Y = 45;
     private static final int LINE_HEIGHT = 16; 
     private static final int ITEMS_PER_PAGE = 12;
- 
     private int currentPage = 0;
  
     private int btnPrevX, btnPrevY, btnPrevW, btnPrevH;
     private int btnNextX, btnNextY, btnNextW, btnNextH;
-
 
     public FireControlScreen(FireControlMenu menu, Inventory playerInventory, Component title) {
         super(menu, playerInventory, title);
@@ -44,24 +46,47 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
     @Override
     protected void init() {
         super.init();
- 
+
         int guiLeft = (this.width - this.imageWidth) / 2;
         int guiTop = (this.height - this.imageHeight) / 2;
-
- 
- 
         this.btnPrevX = guiLeft + 40;
         this.btnPrevY = guiTop + 225;
         this.btnPrevW = 40;
         this.btnPrevH = 12;
-
- 
-        this.btnNextX = guiLeft + 180; 
+        this.btnNextX = guiLeft + 180;
         this.btnNextY = guiTop + 225;
         this.btnNextW = 40;
         this.btnNextH = 12;
+        this.clientWhitelistState = this.menu.isWhitelist;
+        int btnX = guiLeft + 180;
+        int btnY = guiTop + 40;
+        this.modeButton = new IconButton(btnX, btnY, AllIcons.I_BLACKLIST);
+        this.modeButton.withCallback(() -> {
+            NetworkHandler.CHANNEL.sendToServer(new PacketToggleClipboardMode());
+            this.clientWhitelistState = !this.clientWhitelistState;
+            updateModeButtonVisuals();
+            playClickSound();
+        });
+
+        updateModeButtonVisuals();
+        this.addRenderableWidget(this.modeButton);
     }
 
+    private void updateModeButtonVisuals() {
+        if (clientWhitelistState) {
+            modeButton.setIcon(AllIcons.I_WHITELIST);
+            modeButton.setToolTip(Component.translatable("message.sentrymechanicalarm.whitelist")
+                    .append("\n")
+                    .append(Component.translatable("message.sentrymechanicalarm.whitelist_des").withStyle(net.minecraft.ChatFormatting.GRAY))
+                    .append("\n")
+                    .append(Component.translatable("message.sentrymechanicalarm.whitelist_warn").withStyle(ChatFormatting.DARK_RED)));
+
+        } else {
+            modeButton.setIcon(AllIcons.I_BLACKLIST);
+            modeButton.setToolTip(Component.translatable("message.sentrymechanicalarm.blacklist")
+                    .append(Component.translatable("message.sentrymechanicalarm.blacklist_des").withStyle(net.minecraft.ChatFormatting.GRAY)));
+        }
+    }
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         this.renderBackground(guiGraphics);
@@ -71,8 +96,8 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
 
     @Override
     protected void renderBg(GuiGraphics guiGraphics, float partialTick, int mouseX, int mouseY) {
-        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
 
+        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
         int guiLeft = (this.width - this.imageWidth) / 2;
         int guiTop = (this.height - this.imageHeight) / 2;
         AllGuiTextures.CLIPBOARD.render(guiGraphics, guiLeft - 1, guiTop - 5);
@@ -80,12 +105,10 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
         List<String> allTargets = this.menu.getTargetList();
         int totalItems = allTargets.size();
         int maxPage = Math.max(0, (totalItems - 1) / ITEMS_PER_PAGE);
-
         if (currentPage > maxPage) currentPage = maxPage;
 
- 
         String pageStr = (currentPage + 1) + "/" + (maxPage + 1);
-        guiGraphics.drawString(this.font, pageStr, guiLeft + 130, guiTop + 15, 0x555555, false);
+        guiGraphics.drawString(this.font, pageStr, guiLeft + 118, guiTop + 15, 0x555555, false);
 
         if (allTargets.isEmpty()) {
  
@@ -96,15 +119,10 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
             for (int i = start; i < end; i++) {
                 int relativeIndex = i - start;
                 String name = allTargets.get(i);
-
                 int lineY = guiTop + LIST_START_Y + (relativeIndex * LINE_HEIGHT);
                 int lineX = guiLeft + LIST_START_X;
-
- 
                 String indexStr = (i + 1) + ". ";
                 int indexWidth = this.font.width(indexStr);
-
- 
                 ResourceLocation skinLocation = null;
                 if (this.minecraft.getConnection() != null) {
                     PlayerInfo info = this.minecraft.getConnection().getPlayerInfo(name);
@@ -113,28 +131,18 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
                     }
                 }
 
- 
                 int headWidth = (skinLocation != null) ? 10 : 0; 
                 int nameWidth = this.font.width(name);
                 int totalContentWidth = indexWidth + headWidth + nameWidth;
 
- 
                 boolean isHovering = isHoveringArea(mouseX, mouseY, lineX, lineY, totalContentWidth, LINE_HEIGHT);
                 int color = isHovering ? 0xFF0000 : 0x000000;
-
- 
-
- 
                 guiGraphics.drawString(this.font, indexStr, lineX, lineY + 1, color, false);
-
  
                 if (skinLocation != null) {
                     RenderSystem.setShaderTexture(0, skinLocation);
                     RenderSystem.enableBlend();
- 
                     int headX = lineX + indexWidth;
-
- 
                     guiGraphics.blit(skinLocation, headX, lineY, 8, 8, 8.0F, 8.0F, 8, 8, 64, 64);
  
                     guiGraphics.blit(skinLocation, headX, lineY, 8, 8, 40.0F, 8.0F, 8, 8, 64, 64);
@@ -142,51 +150,35 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
                     RenderSystem.disableBlend();
                 }
 
- 
                 int nameX = lineX + indexWidth + headWidth;
                 guiGraphics.drawString(this.font, name, nameX, lineY + 1, color, false);
 
- 
                 if (isHovering) {
                     guiGraphics.fill(lineX, lineY + 6, lineX + totalContentWidth, lineY + 7, 0xFFFF0000);
                 }
             }
         }
 
- 
- 
- 
- 
-
         if (currentPage > 0 || currentPage < maxPage) {
- 
- 
-
  
             if (currentPage > 0) {
                 boolean hover = isHoveringArea(mouseX, mouseY, btnPrevX, btnPrevY, BTN_WIDTH, BTN_HEIGHT);
- 
- 
+
                 int u = hover ? 23 : 0;
                 int v = 205;
-
                 guiGraphics.blit(BOOK_TEXTURE, btnPrevX, btnPrevY, u, v, BTN_WIDTH, BTN_HEIGHT);
             }
 
- 
             if (currentPage < maxPage) {
                 boolean hover = isHoveringArea(mouseX, mouseY, btnNextX, btnNextY, BTN_WIDTH, BTN_HEIGHT);
  
- 
                 int u = hover ? 23 : 0;
                 int v = 192;
-
                 guiGraphics.blit(BOOK_TEXTURE, btnNextX, btnNextY, u, v, BTN_WIDTH, BTN_HEIGHT);
             }
         }
     }
 
- 
     private boolean isHoveringArea(int mouseX, int mouseY, int x, int y, int w, int h) {
         return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY < y + h;
     }
@@ -199,7 +191,6 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
             List<String> targets = this.menu.getTargetList();
             int totalItems = targets.size();
             int maxPage = Math.max(0, (totalItems - 1) / ITEMS_PER_PAGE);
-
  
             if (currentPage > 0 && isHoveringArea((int)mouseX, (int)mouseY, btnPrevX, btnPrevY, BTN_WIDTH, BTN_HEIGHT)) {
                 currentPage--;
@@ -212,14 +203,12 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
                 return true;
             }
 
- 
             int start = currentPage * ITEMS_PER_PAGE;
             int end = Math.min(start + ITEMS_PER_PAGE, totalItems);
 
             for (int i = start; i < end; i++) {
                 int relativeIndex = i - start;
                 String name = targets.get(i);
-
  
                 String indexStr = (i + 1) + ". ";
                 int indexWidth = this.font.width(indexStr);
@@ -236,7 +225,6 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
 
                 int lineY = guiTop + LIST_START_Y + (relativeIndex * LINE_HEIGHT);
                 int lineX = guiLeft + LIST_START_X;
-
  
                 if (isHoveringArea((int)mouseX, (int)mouseY, lineX, lineY, totalContentWidth, LINE_HEIGHT)) {
                     NetworkHandler.CHANNEL.sendToServer(new PacketClearTarget(i));

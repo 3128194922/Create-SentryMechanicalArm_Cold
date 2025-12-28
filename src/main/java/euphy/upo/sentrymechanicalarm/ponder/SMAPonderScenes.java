@@ -19,7 +19,8 @@ public class SMAPonderScenes {
         ENTRY_HELPER.forComponents(SentryRegistry.SENTRY_ARM_BLOCK)
                 .addStoryBoard("introduce", SentryMechanicalArmScene::introducing, KINETIC_APPLIANCES)
                 .addStoryBoard("supply", SentryMechanicalArmScene::supplying, KINETIC_APPLIANCES)
-                .addStoryBoard("ammo", SentryMechanicalArmScene::ammo, KINETIC_APPLIANCES);
+                .addStoryBoard("ammo", SentryMechanicalArmScene::ammo, KINETIC_APPLIANCES)
+                .addStoryBoard("movement", SentryMechanicalArmScene::movement, KINETIC_APPLIANCES);;
 
         ENTRY_HELPER.forComponents(SentryRegistry.BLAZE_FIRE_CONTROL)
                 .addStoryBoard("fire_control", FireControlScene::control, DECORATION);

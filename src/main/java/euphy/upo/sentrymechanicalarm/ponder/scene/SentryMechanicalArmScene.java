@@ -9,33 +9,22 @@ import com.simibubi.create.content.kinetics.saw.SawBlockEntity;
 import com.simibubi.create.foundation.ponder.CreateSceneBuilder;
 import com.simibubi.create.foundation.ponder.element.BeltItemElement;
 import euphy.upo.sentrymechanicalarm.content.SentryArmBlockEntity;
-import euphy.upo.sentrymechanicalarm.registry.SentryRegistry ;
+import euphy.upo.sentrymechanicalarm.registry.SentryRegistry;
 import net.createmod.catnip.math.Pointing;
 import net.createmod.ponder.api.PonderPalette;
 import net.createmod.ponder.api.element.ElementLink;
+import net.createmod.ponder.api.element.WorldSectionElement;
 import net.createmod.ponder.api.scene.SceneBuilder;
 import net.createmod.ponder.api.scene.SceneBuildingUtil;
 import net.createmod.ponder.api.scene.Selection;
-import net.createmod.ponder.foundation.element.InputWindowElement;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtUtils;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.registries.ForgeRegistries;
-
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.List;
 
 public class SentryMechanicalArmScene {
     public static void introducing(SceneBuilder builder, SceneBuildingUtil util) {
@@ -541,6 +530,82 @@ public class SentryMechanicalArmScene {
         scene.markAsFinished();
 
     }
+
+    public static void movement(SceneBuilder builder, SceneBuildingUtil util) {
+        CreateSceneBuilder scene = new CreateSceneBuilder(builder);
+
+        scene.title("sentry_arm_move", "动态结构");
+        scene.configureBasePlate(0, 0, 10);
+        scene.scaleSceneView(0.7f);
+        scene.showBasePlate();
+        scene.idle(30);
+
+        Selection train = util.select().fromTo(0, 1, 4, 9, 4, 6);
+        ElementLink<WorldSectionElement> movement = scene.world().showIndependentSection(util.select().fromTo(6, 1, 2, 2, 2, 2), Direction.DOWN);
+        ElementLink<WorldSectionElement> piston_pos = scene.world().showIndependentSection(util.select().fromTo(4, 1, 3, 4, 1, 3), Direction.DOWN);
+        Item ammoItem = ForgeRegistries.ITEMS.getValue(new ResourceLocation("tacz", "ammo_box"));
+        ItemStack ammoStack = new ItemStack(ammoItem);
+
+
+        scene.world().moveSection(piston_pos, util.vector().of(0, 0, -1), 0);
+
+        scene.idle(20);
+
+        scene.world().moveSection(movement, util.vector().of(-2, 0, 0), 20);
+        scene.world().setKineticSpeed(util.select().everywhere(), 32f);
+        scene.idle(25);
+        scene.world().setKineticSpeed(util.select().everywhere(), 0);
+
+        scene.idle(10);
+
+        scene.overlay().showText(60)
+                .text("哨戒动力臂可以在动态结构上使用")
+                .pointAt(util.vector().topOf(util.grid().at(0, 2, 2)))
+                .placeNearTarget();
+        scene.idle(70);
+
+        scene.world().moveSection(movement, util.vector().of(2, 0, 0), 40);
+        scene.world().setKineticSpeed(util.select().everywhere(), -16f);
+        scene.idle(25);
+        scene.world().setKineticSpeed(util.select().everywhere(), 0);
+
+        scene.idle(10);
+
+        scene.overlay().showText(60)
+                .text("炮台转速正比于移动速度")
+                .pointAt(util.vector().topOf(util.grid().at(2, 2, 2)))
+                .placeNearTarget();
+        scene.idle(70);
+
+        scene.world().hideIndependentSection(movement, Direction.UP);
+        scene.world().hideIndependentSection(piston_pos, Direction.UP);
+        scene.idle(20);
+
+
+        scene.world().showIndependentSection(train, Direction.DOWN);
+        scene.idle(20);
+        scene.world().setKineticSpeed(util.select().everywhere(), -64f);
+        scene.idle(20);
+
+
+        scene.overlay().showText(60)
+                .text("哨戒动力臂会使用结构中容器内的弹药")
+                .pointAt(util.vector().topOf(util.grid().at(2, 2, 2)))
+                .placeNearTarget().attachKeyFrame();
+        scene.overlay().showControls(util.grid().at(3, 4, 5).getCenter(), Pointing.UP, 60).withItem(ammoStack);
+        scene.idle(70);
+
+
+        scene.overlay().showText(60)
+                .text("移动结构上的火控台依然有效")
+                .pointAt(util.vector().topOf(util.grid().at(1, 4, 5)))
+                .placeNearTarget();
+        scene.idle(80);
+
+        scene.markAsFinished();
+
+    }
+
 
     private static ItemStack createGun(String gunId) {
         ItemStack stack = new ItemStack(ForgeRegistries.ITEMS.getValue(new ResourceLocation("tacz", "modern_kinetic_gun")));

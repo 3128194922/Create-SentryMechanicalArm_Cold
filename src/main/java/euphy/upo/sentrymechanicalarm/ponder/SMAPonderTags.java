@@ -9,7 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 public class SMAPonderTags {
 
     public static final ResourceLocation SENTRY_TAG_ID =
-            ResourceLocation.fromNamespaceAndPath(SentryMechanicalArm.MODID, "sentry");
+            new ResourceLocation(SentryMechanicalArm.MODID, "sentry");
 
     public static void register(PonderTagRegistrationHelper<ResourceLocation> helper) {
 
