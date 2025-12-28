@@ -143,6 +143,7 @@ dependencies {
     // For development/testing with VS enabled (not bundled in jar)
     runtimeOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:${vs2_version}")
     compileOnly 'org.luaj:luaj-jse:3.0.1'
+    compileOnly 'thedarkcolour:kotlinforforge:4.11.0'
 }
 
 mixin {
