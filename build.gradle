@@ -113,6 +113,7 @@ dependencies {
     compileOnly(fg.deobf("mezz.jei:jei-${mc_version}-forge-api:${jei_version}"))
     runtimeOnly(fg.deobf("mezz.jei:jei-${mc_version}-forge:${jei_version}"))
 
+    compileOnly 'org.luaj:luaj-jse:3.0.1'
 }
 
 mixin {

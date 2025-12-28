@@ -68,24 +68,14 @@ public class SentryShellManager {
             Iterator<Shell> it = shells.iterator();
             while (it.hasNext()) {
                 Shell shell = it.next();
-
  
                 double age = (System.currentTimeMillis() - shell.spawnTime) / 1000.0;
                 if (age > shell.lifeTime) {
                     it.remove();
                     continue;
                 }
-
- 
- 
                 shell.pos = shell.pos.add(shell.velocity);
-
- 
- 
- 
-                shell.velocity = shell.velocity.add(shell.acceleration.scale(0.05)); 
-
- 
+                shell.velocity = shell.velocity.add(shell.acceleration.scale(0.05));
                 shell.rotation.add(shell.angularVelocity);
             }
         }
@@ -122,13 +112,11 @@ public class SentryShellManager {
 
         if (model == null || texture == null) return;
 
- 
         Vec3 renderPos = shell.pos.add(shell.velocity.scale(pt));
 
         ms.pushPose();
         ms.translate(renderPos.x, renderPos.y, renderPos.z);
 
- 
         ms.mulPose(Axis.XP.rotationDegrees(shell.rotation.x()));
         ms.mulPose(Axis.YP.rotationDegrees(shell.rotation.y()));
         ms.mulPose(Axis.ZP.rotationDegrees(shell.rotation.z()));

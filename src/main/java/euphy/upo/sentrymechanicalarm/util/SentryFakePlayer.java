@@ -5,6 +5,8 @@ import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.entity.IGunOperator;
 import com.tacz.guns.api.item.IGun;
 import euphy.upo.sentrymechanicalarm.content.SentryArmBlockEntity;
+import euphy.upo.sentrymechanicalarm.content.VirtualSentryArmBlockEntity;
+import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -13,12 +15,15 @@ import net.minecraft.world.level.GameType;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.WeakHashMap;
 
 public class SentryFakePlayer {
 
     private static final WeakHashMap<SentryArmBlockEntity, FakePlayer> FAKE_PLAYERS = new WeakHashMap<>();
+    private static final Map<String, FakePlayer> CONTRAPTION_FAKE_PLAYERS = new HashMap<>();
 
     public static FakePlayer get(SentryArmBlockEntity arm) {
         if (!(arm.getLevel() instanceof ServerLevel serverLevel)) return null;
@@ -26,8 +31,7 @@ public class SentryFakePlayer {
         return FAKE_PLAYERS.computeIfAbsent(arm, k -> {
 
             String name = "Sentry_" + arm.getBlockPos().getX() + "_" + arm.getBlockPos().getY() + "_" + arm.getBlockPos().getZ();
-            GameProfile profile = new GameProfile(UUID.randomUUID(), name);
-
+            GameProfile profile = new GameProfile(UUID.nameUUIDFromBytes(name.getBytes()), name);
             FakePlayer fp = FakePlayerFactory.get(serverLevel, profile);
             fp.setGameMode(GameType.ADVENTURE);
             fp.setNoGravity(true);
@@ -38,27 +42,34 @@ public class SentryFakePlayer {
 
 
     public static void sync(FakePlayer fp, SentryArmBlockEntity arm, float yaw, float pitch, ItemStack gunStack) {
-        double x = arm.getBlockPos().getX() + 0.5;
-        double y = arm.getBlockPos().getY() + 1.0;
-        double z = arm.getBlockPos().getZ() + 0.5;
+        boolean isVirtual = arm instanceof VirtualSentryArmBlockEntity;
 
-        fp.setPos(x, y, z);
-        fp.xo = x; fp.yo = y; fp.zo = z;
-        fp.xOld = x; fp.yOld = y; fp.zOld = z;
-
-
+        if (!isVirtual) {
+            double x = arm.getBlockPos().getX() + 0.5;
+            double y = arm.getBlockPos().getY() + 1.0;
+            double z = arm.getBlockPos().getZ() + 0.5;
+            fp.setPos(x, y, z);
+            fp.xo = x; fp.yo = y; fp.zo = z;
+            fp.xOld = x; fp.yOld = y; fp.zOld = z;
+        }
         fp.setYRot(yaw);
         fp.setXRot(pitch);
         fp.yHeadRot = yaw;
         fp.yBodyRot = yaw;
 
+        fp.setHealth(fp.getMaxHealth());
+        fp.deathTime = 0;
+        fp.removeAllEffects();
+        fp.clearFire();
+        fp.setExperienceLevels(0);
+        fp.setExperiencePoints(0);
+
         IGunOperator operator = IGunOperator.fromLivingEntity(fp);
-
         operator.aim(true);
-
         if (operator.getDataHolder().currentGunItem == null) {
             operator.initialData();
         }
+
         ItemStack currentFakeItem = fp.getMainHandItem();
         boolean isSameGunId = false;
 
@@ -92,12 +103,51 @@ public class SentryFakePlayer {
                 net.minecraft.world.item.Item ammoItem = net.minecraftforge.registries.ForgeRegistries.ITEMS.getValue(ammoId);
                 if (ammoItem != null) {
                     ItemStack ammoStack = new ItemStack(ammoItem, 64);
-
                     fp.getInventory().setItem(1, ammoStack);
                 }
             });
         }
 
-        try { fp.tick(); } catch (Exception e) {}
+        try {
+            fp.tick();
+
+            ItemStack handItem = fp.getMainHandItem();
+            if (!handItem.isEmpty() && handItem.getItem() instanceof com.tacz.guns.api.item.gun.AbstractGunItem gunItem) {
+                gunItem.tickHeat(operator.getDataHolder(), handItem, fp);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        ItemStack postTickStack = fp.getMainHandItem();
+        if (!postTickStack.isEmpty() && !gunStack.isEmpty() && postTickStack.getItem() == gunStack.getItem()) {
+            if (postTickStack.hasTag()) {
+                gunStack.setTag(postTickStack.getTag().copy());
+            }
+        }
     }
+
+    public static FakePlayer getForContraption(ServerLevel level, UUID contraptionUUID, BlockPos localPos) {
+        String key = contraptionUUID.toString() + "_" + localPos.asLong();
+
+        FakePlayer existing = CONTRAPTION_FAKE_PLAYERS.get(key);
+        if (existing != null && existing.level() == level) {
+            return existing;
+        }
+
+        String name = "SentryC_" + Math.abs(key.hashCode());
+        FakePlayer newPlayer = createFakePlayer(level, name);
+        CONTRAPTION_FAKE_PLAYERS.put(key, newPlayer);
+        return newPlayer;
+    }
+
+    private static FakePlayer createFakePlayer(ServerLevel level, String name) {
+        GameProfile profile = new GameProfile(UUID.nameUUIDFromBytes(name.getBytes()), name);
+        FakePlayer fp = FakePlayerFactory.get(level, profile);
+        fp.setGameMode(GameType.ADVENTURE);
+        fp.setNoGravity(true);
+        fp.setInvisible(true);
+        return fp;
+    }
+
 }

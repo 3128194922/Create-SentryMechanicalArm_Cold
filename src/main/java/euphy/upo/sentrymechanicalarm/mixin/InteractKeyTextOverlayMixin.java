@@ -1,9 +1,8 @@
 package euphy.upo.sentrymechanicalarm.mixin;
 
-import com.simibubi.create.content.kinetics.mechanicalArm.ArmBlock;
 import com.tacz.guns.client.gui.overlay.InteractKeyTextOverlay;
 import com.tacz.guns.config.util.InteractKeyConfigRead;
-import euphy.upo.sentrymechanicalarm.content.SentryArmBlock; 
+import euphy.upo.sentrymechanicalarm.content.SentryArmBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -25,9 +24,6 @@ public class InteractKeyTextOverlayMixin {
             return true;
         }
         if (state.getBlock() instanceof SentryArmBlock) {
-            if (state.getValue(ArmBlock.CEILING)) {
-                return false;
-            }
             return true;
         }
         return false;

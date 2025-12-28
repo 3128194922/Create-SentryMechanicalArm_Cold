@@ -15,7 +15,7 @@ import net.minecraftforge.fml.common.Mod;
 
 import java.util.Map;
 
- 
+ /*
 @Mod.EventBusSubscriber(modid = SentryMechanicalArm.MODID)
 public class SentryDebugHelper {
 
@@ -69,14 +69,11 @@ public class SentryDebugHelper {
 
     @SubscribeEvent
     public static void onLivingHurt(LivingHurtEvent event) {
- 
         Entity attacker = event.getSource().getEntity();
-
- 
         if (attacker instanceof LivingEntity living && living.getPersistentData().contains(DEBUG_TAG)) {
- 
  
             event.setAmount(0.0f);
         }
     }
 }
+  */

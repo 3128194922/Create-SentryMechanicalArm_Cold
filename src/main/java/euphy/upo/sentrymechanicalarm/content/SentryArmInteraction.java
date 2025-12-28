@@ -12,7 +12,6 @@ import org.jetbrains.annotations.Nullable;
 
 public class SentryArmInteraction {
 
- 
     public static class Type extends ArmInteractionPointType {
 
         public Type(ResourceLocation id) {
@@ -20,10 +19,8 @@ public class SentryArmInteraction {
         }
         @Override
         public boolean canCreatePoint(Level level, BlockPos pos, BlockState state) {
- 
             return level.getBlockEntity(pos) instanceof SentryArmBlockEntity;
         }
-
         @Nullable
         @Override
         public ArmInteractionPoint createPoint(Level level, BlockPos pos, BlockState state) {

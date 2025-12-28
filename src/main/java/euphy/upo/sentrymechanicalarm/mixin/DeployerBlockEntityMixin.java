@@ -20,6 +20,7 @@ import java.lang.reflect.Method;
 @Mixin(DeployerBlockEntity.class)
 public abstract class DeployerBlockEntityMixin {
 
+
     @Shadow protected DeployerFakePlayer player;
     @Shadow protected abstract Vec3 getMovementVector();
 

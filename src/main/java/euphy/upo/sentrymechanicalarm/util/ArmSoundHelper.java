@@ -1,13 +1,14 @@
 package euphy.upo.sentrymechanicalarm.util;
 
 import com.tacz.guns.api.TimelessAPI;
+import com.tacz.guns.api.item.IGun;
+import com.tacz.guns.api.item.attachment.AttachmentType;
 import com.tacz.guns.client.resource.GunDisplayInstance;
 import com.tacz.guns.client.sound.SoundPlayManager;
 import com.tacz.guns.resource.pojo.data.gun.BulletData;
 import com.tacz.guns.resource.pojo.data.gun.GunData;
 import com.tacz.guns.sound.SoundManager;
 import euphy.upo.sentrymechanicalarm.content.SentryArmBlockEntity;
-import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.projectile.Snowball;
@@ -21,22 +22,47 @@ import java.util.Optional;
 
 @OnlyIn(Dist.CLIENT)
 public class ArmSoundHelper {
+
+    public static boolean isSilenced(ItemStack stack) {
+        IGun iGun = IGun.getIGunOrNull(stack);
+        if (iGun == null) {
+            return false;
+        }
+        ResourceLocation muzzleId = iGun.getAttachmentId(stack, AttachmentType.MUZZLE);
+
+        return TimelessAPI.getCommonAttachmentIndex(muzzleId).map(index -> {
+            if (index.getData() != null && index.getData().getModifier() != null) {
+                return index.getData().getModifier().containsKey("silence");
+            }
+            return false;
+        }).orElse(false);
+    }
+
     public static void playFireEffects(SentryArmBlockEntity sentry, Level level, Vec3 pos, Vec3 direction, double maxDistance, ItemStack stack, GunData gunData) {
-        if (!(level instanceof ClientLevel clientLevel)) return;
+
         Optional<GunDisplayInstance> displayOpt = TimelessAPI.getGunDisplay(stack);
         if (displayOpt.isPresent()) {
             GunDisplayInstance display = displayOpt.get();
-            ResourceLocation soundId = display.getSounds(SoundManager.SHOOT_SOUND);
+
+            boolean isSilenced = isSilenced(stack);
+            String soundKey = isSilenced(stack) ? SoundManager.SILENCE_SOUND : SoundManager.SHOOT_SOUND;
+            ResourceLocation soundId = display.getSounds(soundKey);
+
+            if (soundId == null && soundKey.equals(SoundManager.SILENCE_SOUND)) {
+                soundId = display.getSounds(SoundManager.SHOOT_SOUND);
+            }
 
             if (soundId != null) {
-                float volume = 4.0f;
+                float volume = 3.0f;
+                if(isSilenced) volume =0.25f;
+
                 if (gunData.getFireSound() != null) {
                     volume *= gunData.getFireSound().getFireMultiplier();
                 }
                 float pitch = 1.0f + (level.random.nextFloat() - 0.5f) * 0.1f;
-                int distance = 64;
+                int distance = 32;
 
-                Entity dummyEntity = new Snowball(clientLevel, pos.x, pos.y, pos.z);
+                Entity dummyEntity = new Snowball(level, pos.x, pos.y, pos.z);
                 dummyEntity.setPos(pos.x, pos.y, pos.z);
                 SoundPlayManager.playClientSound(dummyEntity, soundId, volume, pitch, distance);
             }
@@ -51,7 +77,7 @@ public class ArmSoundHelper {
 
             if (level.random.nextFloat() < chance) {
                 Vec3 startPos = pos.add(0, 1.8, 0).add(direction.scale(0.5));
- 
+
             }
         }
     }

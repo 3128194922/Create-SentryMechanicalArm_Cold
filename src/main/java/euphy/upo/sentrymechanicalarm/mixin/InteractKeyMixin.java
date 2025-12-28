@@ -1,8 +1,7 @@
 package euphy.upo.sentrymechanicalarm.mixin;
 
-import com.simibubi.create.content.kinetics.mechanicalArm.ArmBlock; 
 import com.tacz.guns.client.input.InteractKey;
-import euphy.upo.sentrymechanicalarm.content.SentryArmBlock; 
+import euphy.upo.sentrymechanicalarm.content.SentryArmBlock;
 import euphy.upo.sentrymechanicalarm.network.NetworkHandler;
 import euphy.upo.sentrymechanicalarm.network.SentryInteractPacket;
 import net.minecraft.client.Minecraft;
@@ -23,10 +22,6 @@ public class InteractKeyMixin {
         BlockPos blockPos = blockHitResult.getBlockPos();
         BlockState state = player.level().getBlockState(blockPos);
         if (state.getBlock() instanceof SentryArmBlock) {
-
-            if (state.getValue(ArmBlock.CEILING)) {
-                return;
-            }
             NetworkHandler.CHANNEL.sendToServer(new SentryInteractPacket(blockPos));
             ci.cancel();
         }

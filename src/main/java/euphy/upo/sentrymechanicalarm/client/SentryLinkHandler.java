@@ -1,10 +1,11 @@
 package euphy.upo.sentrymechanicalarm.client;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.simibubi.create.AllItems;
 import euphy.upo.sentrymechanicalarm.content.BlazeFireControlBlockEntity;
 import euphy.upo.sentrymechanicalarm.content.SentryArmBlockEntity;
+import euphy.upo.sentrymechanicalarm.network.NetworkHandler;
 import euphy.upo.sentrymechanicalarm.network.SentryLinkPacket;
-import euphy.upo.sentrymechanicalarm.network.NetworkHandler; 
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.DustParticleOptions;
@@ -13,10 +14,10 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
-import com.simibubi.create.AllItems;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -48,8 +49,7 @@ public class SentryLinkHandler {
         boolean isSentry = level.getBlockEntity(pos) instanceof SentryArmBlockEntity;
         boolean isFireControl = level.getBlockEntity(pos) instanceof BlazeFireControlBlockEntity;
 
-        if (!isSentry && !isFireControl) return; 
-
+        if (!isSentry && !isFireControl) return;
  
         if (firstSelectedPos == null) {
             firstSelectedPos = pos;
@@ -116,7 +116,7 @@ public class SentryLinkHandler {
             Vec3 end = Vec3.atCenterOf(lookPos);
 
             double distSqr = start.distanceToSqr(end);
-            boolean inRange = distSqr <= 9.0;
+            boolean inRange = distSqr <= 36.0;
 
  
             Vector3f color = inRange ? new Vector3f(0.0f, 1.0f, 0.0f) : new Vector3f(1.0f, 0.0f, 0.0f);
@@ -127,7 +127,7 @@ public class SentryLinkHandler {
         }
 
         else {
-            net.minecraft.world.level.block.entity.BlockEntity be = mc.level.getBlockEntity(lookPos);
+            BlockEntity be = mc.level.getBlockEntity(lookPos);
 
             Vector3f establishedColor = new Vector3f(0.0f, 1.0f, 1.0f); 
 
@@ -141,9 +141,9 @@ public class SentryLinkHandler {
             }
  
             else if (be instanceof BlazeFireControlBlockEntity) {
-                for (int x = -3; x <= 3; x++) {
-                    for (int y = -3; y <= 3; y++) {
-                        for (int z = -3; z <= 3; z++) {
+                for (int x = -6; x <= 6; x++) {
+                    for (int y = -6; y <= 6; y++) {
+                        for (int z = -6; z <= 6; z++) {
                             BlockPos checkPos = lookPos.offset(x, y, z);
  
                             if (mc.level.getBlockEntity(checkPos) instanceof SentryArmBlockEntity linkedSentry) {

@@ -1,20 +1,24 @@
 package euphy.upo.sentrymechanicalarm.registry;
 
-
 import com.simibubi.create.api.stress.BlockStressValues;
 import com.simibubi.create.foundation.data.CreateRegistrate;
 import com.simibubi.create.foundation.data.SharedProperties;
 import com.tterrag.registrate.util.entry.*;
+import euphy.upo.sentrymechanicalarm.SentryMechanicalArm;
 import euphy.upo.sentrymechanicalarm.content.*;
 import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.block.model.BlockModel;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.CreativeModeTab;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.entity.decoration.PaintingVariant;
 import net.minecraft.world.level.material.MapColor;
+import net.minecraftforge.client.model.generators.ConfiguredModel;
 import net.minecraftforge.client.model.generators.ModelFile;
 import net.minecraftforge.common.extensions.IForgeMenuType;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -23,6 +27,8 @@ import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.registries.RegistryObject;
 
 import com.simibubi.create.api.behaviour.movement.MovementBehaviour;
+
+import static com.simibubi.create.api.behaviour.interaction.MovingInteractionBehaviour.interactionBehaviour;
 import static com.simibubi.create.foundation.data.TagGen.pickaxeOnly;
 import static euphy.upo.sentrymechanicalarm.SentryMechanicalArm.MODID;
 
@@ -50,6 +56,29 @@ public class SentryRegistry {
             .initialProperties(SharedProperties::softMetal)
             .properties(p -> p.mapColor(MapColor.COLOR_GRAY))
             .blockstate((ctx, prov) -> {
+                prov.getVariantBuilder(ctx.getEntry()).forAllStates(state -> {
+                    int colorId = state.getValue(SentryArmBlock.COLOR_TYPE);
+                    boolean isCeiling = state.getValue(SentryArmBlock.CEILING);
+                    String texturePath;
+                    String suffix;
+                    if (colorId == 0) {
+                        texturePath = "block/sentry_block";
+                        suffix = "default";
+                    } else {
+                        DyeColor color = DyeColor.byId(colorId - 1);
+                        texturePath = "block/colored/sentry_block_" + color.getSerializedName();
+                        suffix = color.getSerializedName();
+                    }
+                    var model = prov.models().withExistingParent(
+                                    ctx.getName() + "_" + suffix,
+                                    new ResourceLocation(SentryMechanicalArm.MODID, "block/sentry_block"))
+                            .texture("0", new ResourceLocation(SentryMechanicalArm.MODID, texturePath))
+                            .texture("particle", new ResourceLocation(SentryMechanicalArm.MODID, texturePath));
+                    var builder = ConfiguredModel.builder().modelFile(model);
+
+                    if (isCeiling) {builder.rotationX(180);}
+                    return builder.build();
+                });
             })
             .transform(pickaxeOnly())
             .onRegister(MovementBehaviour.movementBehaviour(new SentryMovementBehaviour()))
@@ -70,10 +99,12 @@ public class SentryRegistry {
             .block("blaze_fire_control", BlazeFireControlBlock::new)
             .initialProperties(SharedProperties::softMetal)
             .properties(p -> p.mapColor(MapColor.COLOR_GRAY)
-                    .lightLevel(s -> 15)
+                    .lightLevel(s -> 14)
                     .noOcclusion())
             .transform(pickaxeOnly())
             .addLayer(() -> RenderType::cutoutMipped)
+            .onRegister(MovementBehaviour.movementBehaviour(new FireControlMovementBehaviour()))
+            .onRegister(interactionBehaviour(new FireControlInteractionBehaviour()))
             .blockstate((ctx, prov) -> {
                 prov.simpleBlock(
                         ctx.getEntry(),
@@ -85,7 +116,7 @@ public class SentryRegistry {
             .model((ctx, prov) -> {
                 prov.getBuilder(ctx.getName())
                         .parent(new ModelFile.UncheckedModelFile("builtin/entity"))
-                        .guiLight(net.minecraft.client.renderer.block.model.BlockModel.GuiLight.FRONT)
+                        .guiLight(BlockModel.GuiLight.FRONT)
                         .transforms()
                         .transform(ItemDisplayContext.GUI)
                         .rotation(30, 225, 0)
