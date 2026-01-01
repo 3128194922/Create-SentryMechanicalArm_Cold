@@ -1,5 +1,6 @@
 package euphy.upo.sentrymechanicalarm.content;
 
+import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import com.simibubi.create.foundation.blockEntity.behaviour.ValueBoxTransform;
@@ -12,9 +13,13 @@ import com.tacz.guns.api.entity.ShootResult;
 import com.tacz.guns.api.item.IAmmoBox;
 import com.tacz.guns.api.item.IGun;
 import com.tacz.guns.api.item.gun.FireMode;
+import com.tacz.guns.entity.shooter.ShooterDataHolder;
 import com.tacz.guns.resource.index.CommonGunIndex;
 import com.tacz.guns.resource.modifier.AttachmentCacheProperty;
-import com.tacz.guns.resource.pojo.data.gun.*;
+import com.tacz.guns.resource.pojo.data.gun.BulletData;
+import com.tacz.guns.resource.pojo.data.gun.ExtraDamage;
+import com.tacz.guns.resource.pojo.data.gun.GunData;
+import com.tacz.guns.resource.pojo.data.gun.InaccuracyType;
 import euphy.upo.sentrymechanicalarm.compat.VSCompat;
 import euphy.upo.sentrymechanicalarm.network.NetworkHandler;
 import euphy.upo.sentrymechanicalarm.network.SentryShootPacket;
@@ -32,6 +37,7 @@ import net.minecraft.core.NonNullList;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
@@ -41,7 +47,6 @@ import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
-import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -51,16 +56,17 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.*;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.items.IItemHandler;
-import net.minecraftforge.registries.ForgeRegistries;
+import org.slf4j.Logger;
 
 import java.util.*;
 
 public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmoStorage {
-
+    public static final Logger LOGGER = LogUtils.getLogger();
     private final IItemHandler smartItemHandler = new SentryItemHandler();
     private BlockPos connectedFireControlPos = null;
     private float lowerArmRecoilOffset = 0f;
     private BlockPos cachedTargetBlock = null;
+    private LivingEntity cachedTarget;
     private int idleScanTimer = 0;
     public float idleTargetYaw = 0;
     public float idleTargetPitch = 0;
@@ -75,10 +81,40 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     public final NonNullList<ItemStack> attachedAmmoBoxes = NonNullList.withSize(2, ItemStack.EMPTY);
     private int lineOfSightTicker = 0;
     private long lastShootTime = 0;
-    private LivingEntity cachedTarget;
     private int scanCooldown = 0;
     public ScrollValueBehaviour rangeScroll;
     public Optional<DyeColor> color = Optional.empty();
+    private String lastScriptDataStr = "";
+    private float lastAimingProgress = -1.0f;
+    private int triggerHoldTime = 0;
+    private int currentTimeoutThreshold = 100;
+    private boolean isTestingRelease = false;
+    private int releaseWatchTimer = 0;
+    private boolean wasCharging = false;
+    private SentryStatus currentStatus = SentryStatus.IDLE;
+
+    public enum SentryStatus {
+        IDLE,
+        SHOOTING,
+        CHARGING,
+        BOLTING,
+        RELOADING,
+        COOLING,
+        NO_AMMO,
+        BROKEN
+    }
+
+    private record FireContext(
+            FakePlayer player,
+            ItemStack heldItem,
+            ItemStack fakeHeldItem,
+            IGun iGunFake,
+            IGunOperator operator,
+            ShooterDataHolder dataHolder,
+            Optional<CommonGunIndex> gunIndex,
+            boolean actuallyFired,
+            FireMode fireMode
+    ) {}
 
     public SentryArmBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
         super(type, pos, state);
@@ -180,10 +216,20 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         ItemStack currentHeld = getHeldItem();
         boolean isPowered = Math.abs(this.getSpeed()) > 0;
 
+        boolean isGun = !currentHeld.isEmpty() && currentHeld.getItem() instanceof com.tacz.guns.api.item.IGun;
+        net.minecraftforge.common.util.FakePlayer fakePlayer = null;
+
+        if (!level.isClientSide && isGun) {
+            fakePlayer = euphy.upo.sentrymechanicalarm.util.SentryFakePlayer.get(this);
+            if (fakePlayer != null) {
+                euphy.upo.sentrymechanicalarm.util.SentryFakePlayer.sync(fakePlayer, this, this.idleTargetYaw, this.idleTargetPitch, currentHeld);
+            }
+        }
+
         if (!isPowered) {
             sentryDeactivated();
         }
-        else if (!currentHeld.isEmpty() && currentHeld.getItem() instanceof IGun) {
+        else if (isGun) {
             if (this.level.isClientSide) {
                 updateClientTarget();
             }
@@ -191,6 +237,46 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         }
         else {
             sentryDeactivated();
+        }
+
+        if (!level.isClientSide && isGun && fakePlayer != null) {
+            try {
+                fakePlayer.tick();
+
+                ItemStack handItem = fakePlayer.getMainHandItem();
+                if (!handItem.isEmpty()) {
+                    handItem.inventoryTick(this.level, fakePlayer, 0, true);
+
+                    if (handItem.getItem() instanceof com.tacz.guns.api.item.gun.AbstractGunItem gunItem) {
+                        com.tacz.guns.api.entity.IGunOperator operator = com.tacz.guns.api.entity.IGunOperator.fromLivingEntity(fakePlayer);
+                        if (operator != null) {
+                            gunItem.tickHeat(operator.getDataHolder(), handItem, fakePlayer);
+                        }
+                    }
+                }
+
+                for (int i = 0; i < attachedAmmoBoxes.size(); i++) {
+                    ItemStack playerStack = fakePlayer.getInventory().getItem(9 + i);
+
+                    if (!ItemStack.matches(playerStack, attachedAmmoBoxes.get(i))) {
+                        attachedAmmoBoxes.set(i, playerStack.copy());
+                        this.setChanged();
+                        this.sendData();
+                    }
+                }
+
+            } catch (Exception ignored) {
+            }
+
+            ItemStack fakeHeld = fakePlayer.getMainHandItem();
+            if (fakeHeld.getItem() == currentHeld.getItem() && fakeHeld.hasTag()) {
+                if (!java.util.Objects.equals(currentHeld.getTag(), fakeHeld.getTag())) {
+                    currentHeld.setTag(fakeHeld.getTag().copy());
+                    this.setChanged();
+                    this.sendData();
+                }
+            }
+
         }
 
         if (!level.isClientSide && !attachedAmmoBoxes.isEmpty()) {
@@ -379,11 +465,8 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         FakePlayer fp = SentryFakePlayer.get(this);
 
         if (fp != null) {
-            Vec3 resultPos = fp.getEyePosition();
-            if (isCeiling()) {
-                return resultPos.add(0, -4.0, 0);
-            }
-            return resultPos;
+
+            return fp.getEyePosition();
         }
 
         Vec3 basePos = this.worldPosition.getCenter().add(0, 1.5, 0);
@@ -564,251 +647,434 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         this.syncTargetBlock();
     }
 
+
+
     private void fireGun(float targetYaw, float targetPitch) {
+        if (heldItem.isEmpty() || this.level.isClientSide) return;
 
-        if (heldItem.isEmpty()) return;
-        if (this.level.isClientSide) return;
+        FakePlayer fakePlayer = SentryFakePlayer.get(this);
+        if (fakePlayer == null) return;
 
-        IGun iGun = (IGun) heldItem.getItem();
-        ResourceLocation gunId = iGun.getGunId(heldItem);
-        Optional<CommonGunIndex> indexOpt = TimelessAPI.getCommonGunIndex(gunId);
-        if (indexOpt.isEmpty()) return;
-        CommonGunIndex index = indexOpt.get();
-        GunData gunData = indexOpt.get().getGunData();
-        float currentRPM = gunData.getRoundsPerMinute(FireMode.AUTO);
-        if (gunData.hasHeatData()) {
-            float rpmMultiplier = iGun.lerpRPM(heldItem);
-            currentRPM *= rpmMultiplier;
-        }
-        Bolt boltType = gunData.getBolt();
-        if (boltType == Bolt.MANUAL_ACTION) {
-            currentRPM /= 5.0f;
-        }
-        String type = index.getType();
+        SentryFakePlayer.sync(fakePlayer, this, targetYaw, targetPitch, heldItem);
+        IGunOperator operator = IGunOperator.fromLivingEntity(fakePlayer);
+        ItemStack fakeHeldItem = fakePlayer.getMainHandItem();
+        IGun iGunFake = IGun.getIGunOrNull(fakeHeldItem);
+        if (iGunFake == null) return;
 
-        if ("rpg".equals(type) || "grenade_launcher".equals(type)) {
-            currentRPM /= 6.0f;
-        }
+        long gameTick = this.level.getGameTime();
+        ShooterDataHolder dataHolder = operator.getDataHolder();
 
-        if (currentRPM <= 0) currentRPM = 1;
-        float ticksPerShot = 1200.0f / currentRPM;
-        this.shootDelayAccumulator -= 1.0f;
         if (this.shootDelayAccumulator > 0) {
+            this.shootDelayAccumulator -= 1.0f;
+            this.triggerHoldTime = 0;
+            if (fakeHeldItem.getItem() == heldItem.getItem() && fakeHeldItem.hasTag()) {
+                heldItem.setTag(fakeHeldItem.getTag().copy());
+            }
             return;
         }
 
-        int currentGunAmmo = iGun.getCurrentAmmoCount(heldItem);
-        boolean hasAmmo = false;
-        ItemStack ammoSource = ItemStack.EMPTY;
+        ResourceLocation gunIdRes = iGunFake.getGunId(fakeHeldItem);
+        Optional<CommonGunIndex> gunIndex = TimelessAPI.getCommonGunIndex(gunIdRes);
+        FireMode mode = iGunFake.getFireMode(fakeHeldItem);
+        if (gunIndex.isPresent()) {
+            applySentryAccuracyModifier(operator, iGunFake, fakeHeldItem, gunIndex.get().getGunData());
+        }
+        this.triggerHoldTime++;
+        /*
+        if (gameTick % 40 == 0) {
+            LOGGER.info(
+                    "[Sentry] Tick: {} | Action: PRESS | HoldTick: {}", gameTick, this.triggerHoldTime);
+        }
+         */
+        ShootResult result = ShootResult.UNKNOWN_FAIL;
+        try {
+            result = operator.shoot(() -> targetPitch, () -> targetYaw);
+        } catch (Exception e) {
+            LOGGER.error("Error executing operator.shoot", e);
+        }
 
-        if (currentGunAmmo > 0) {
-            hasAmmo = true;
+        boolean actuallyFired = SentryFakePlayer.checkAndClearFired(fakePlayer);
+
+        FireContext ctx = new FireContext(
+                fakePlayer, heldItem, fakeHeldItem, iGunFake, operator, dataHolder, gunIndex, actuallyFired, mode
+        );
+
+        switch (result) {
+            case NEED_BOLT -> handleNeedBolt(ctx);
+            case NO_AMMO -> handleNoAmmo(ctx);
+            case OVERHEATED -> handleOverheated(ctx);
+            case IS_BOLTING -> handleIsBolting(ctx);
+            case IS_RELOADING, IS_DRAWING -> handleWaitState();
+            case SUCCESS -> handleSuccess(ctx);
+            default -> {}
+        }
+
+        if (fakeHeldItem.getItem() == heldItem.getItem() && fakeHeldItem.hasTag()) {
+            heldItem.setTag(fakeHeldItem.getTag().copy());
+        }
+    }
+
+
+    private void handleWaitState() {
+        this.shootDelayAccumulator = 2.0f;
+        setStatus(SentryStatus.RELOADING);
+    }
+
+    private void handleNeedBolt(FireContext ctx) {
+        ctx.operator.bolt();
+        setStatus(SentryStatus.BOLTING);
+        sendActionPacket(SentryShootPacket.ActionType.BOLT);
+        float boltTime = 0.5f;
+        if (ctx.gunIndex.isPresent()) boltTime = ctx.gunIndex.get().getGunData().getBoltActionTime();
+        this.shootDelayAccumulator = Math.max(10, boltTime * 20) + 5;
+    }
+
+    private void handleNoAmmo(FireContext ctx) {
+        boolean reloaded = performInstantReload(ctx.player, ctx.iGunFake, ctx.fakeHeldItem);
+        if (reloaded) {
+            this.shootDelayAccumulator = 2.0f;
+            setStatus(SentryStatus.RELOADING);
         } else {
-            for (ItemStack box : attachedAmmoBoxes) {
-                if (!box.isEmpty() && box.getItem() instanceof IAmmoBox iBox) {
-                    if (iBox.isAmmoBoxOfGun(heldItem, box)) {
-                        if (iBox.isCreative(box) || iBox.isAllTypeCreative(box) || iBox.getAmmoCount(box) > 0) {
-                            hasAmmo = true;
-                            ammoSource = box;
-                            break;
-                        }
-                    }
+            this.shootDelayAccumulator = 40.0f;
+            setStatus(SentryStatus.NO_AMMO);
+        }
+    }
+
+    private void handleIsBolting(FireContext ctx) {
+        long boltTimestamp = ctx.dataHolder.boltTimestamp;
+        float boltTime = 0.5f;
+        if (ctx.gunIndex.isPresent()) {
+            boltTime = ctx.gunIndex.get().getGunData().getBoltActionTime();
+        }
+
+        long boltDurationMs = (long) (boltTime * 1000);
+        long elapsed = System.currentTimeMillis() - boltTimestamp;
+
+        if (elapsed > boltDurationMs + 500) {
+            if (!ctx.iGunFake.hasBulletInBarrel(ctx.fakeHeldItem)) {
+                if (ctx.iGunFake.getCurrentAmmoCount(ctx.fakeHeldItem) > 0) {
+                    ctx.iGunFake.reduceCurrentAmmoCount(ctx.fakeHeldItem);
+                    ctx.iGunFake.setBulletInBarrel(ctx.fakeHeldItem, true);
                 }
             }
+            ctx.dataHolder.isBolting = false;
+            ctx.dataHolder.boltTimestamp = -1L;
+            this.shootDelayAccumulator = 0f;
+        } else {
+            this.shootDelayAccumulator = 2.0f;
         }
+    }
 
-        if (!hasAmmo) {
+    private void handleOverheated(FireContext ctx) {
+        long heatTimestamp = ctx.dataHolder.heatTimestamp;
+        long currentTimestamp = System.currentTimeMillis();
+        long idleTime = currentTimestamp - heatTimestamp;
 
-            if (this.shootDelayAccumulator < 0) this.shootDelayAccumulator = 0;
-            return;
+        long coolingDelay = 2000L;
+        if (ctx.gunIndex.isPresent() && ctx.gunIndex.get().getGunData().getHeatData() != null) {
+            coolingDelay = ctx.gunIndex.get().getGunData().getHeatData().getCoolingDelay();
         }
+        long gracePeriod = coolingDelay + 2000L;
 
-        int maxShotsPerTick = 10;
-        int shotsFired = 0;
+        if (idleTime < gracePeriod) {
+            setStatus(SentryStatus.COOLING);
+            this.shootDelayAccumulator = 20.0f;
+        } else {
+            float currentHeat = ctx.iGunFake.getHeatAmount(ctx.fakeHeldItem);
+            float maxHeat = 0.0f;
+            if (ctx.gunIndex.isPresent() && ctx.gunIndex.get().getGunData().getHeatData() != null) {
+                maxHeat = ctx.gunIndex.get().getGunData().getHeatData().getHeatMax();
+            }
 
-        while (this.shootDelayAccumulator <= 0 && shotsFired < maxShotsPerTick) {
-            boolean success = performSingleShot(targetYaw, targetPitch, iGun, gunData, currentGunAmmo, ammoSource);
-            if (success) {
-                this.shootDelayAccumulator += ticksPerShot;
-                shotsFired++;
-                currentGunAmmo = iGun.getCurrentAmmoCount(heldItem);
+            boolean isCoolingDown = (maxHeat > 0) && (currentHeat < (maxHeat - 0.01f));
 
-                if (currentGunAmmo <= 0 && !canFindNextAmmo(heldItem)) {
-                    break;
-                }
+            if (isCoolingDown) {
+                setStatus(SentryStatus.COOLING);
+                this.shootDelayAccumulator = 20.0f;
             } else {
+                boolean consumed = false;
+                if (ctx.gunIndex.isPresent()) {
+                    net.minecraft.resources.ResourceLocation requiredAmmoId = ctx.gunIndex.get().getGunData().getAmmoId();
+                    consumed = tryConsumeGenericAmmo(ctx.player, requiredAmmoId);
+                }
 
-                this.shootDelayAccumulator = Math.max(0, this.shootDelayAccumulator + ticksPerShot);
-                break;
+                if (consumed) {
+                    ctx.iGunFake.setHeatAmount(ctx.fakeHeldItem, 0.0f);
+                    ctx.iGunFake.setOverheatLocked(ctx.fakeHeldItem, false);
+                    ctx.dataHolder.reloadStateType = com.tacz.guns.api.entity.ReloadState.StateType.NOT_RELOADING;
+                    ctx.dataHolder.reloadTimestamp = -1L;
+                    this.shootDelayAccumulator = 10.0f;
+                } else {
+                    this.shootDelayAccumulator = 40.0f;
+                }
+                setStatus(SentryStatus.COOLING);
             }
         }
     }
 
-    private boolean canFindNextAmmo(ItemStack gunStack) {
-        for (ItemStack box : attachedAmmoBoxes) {
-            if (!box.isEmpty() && box.getItem() instanceof IAmmoBox iBox) {
-                if (iBox.isAmmoBoxOfGun(gunStack, box)) {
-                    if (iBox.isCreative(box) || iBox.getAmmoCount(box) > 0) return true;
+    private void handleSuccess(FireContext ctx) {
+        this.lastShootTime = System.currentTimeMillis();
+
+        com.tacz.guns.resource.pojo.data.gun.Bolt boltType = com.tacz.guns.resource.pojo.data.gun.Bolt.OPEN_BOLT;
+        if (ctx.gunIndex.isPresent()) {
+            boltType = ctx.gunIndex.get().getGunData().getBolt();
+        }
+        boolean isManualAction = (boltType == com.tacz.guns.resource.pojo.data.gun.Bolt.MANUAL_ACTION);
+        setStatus(SentryStatus.IDLE);
+        if (isManualAction) {
+            handleManualActionStrategy(ctx);
+        } else if (ctx.fireMode == FireMode.SEMI || ctx.fireMode == FireMode.BURST) {
+            handleSemiAutoStrategy(ctx);
+        } else {
+            handleAdaptiveAutoStrategy(ctx);
+        }
+
+        if (ctx.actuallyFired) {
+            sendShootPacket(ctx.player);
+        }
+    }
+
+    private void handleManualActionStrategy(FireContext ctx) {
+        if (ctx.actuallyFired) {
+            setStatus(SentryStatus.SHOOTING);
+            this.shootDelayAccumulator = 4.0f;
+            this.triggerHoldTime = 0;
+        } else {
+            setStatus(SentryStatus.SHOOTING);
+            this.triggerHoldTime++;
+            if (this.triggerHoldTime > 20) {
+                this.shootDelayAccumulator = 4.0f;
+                this.triggerHoldTime = 0;
+            } else {
+                this.shootDelayAccumulator = 0f;
+            }
+        }
+    }
+
+    private void handleSemiAutoStrategy(FireContext ctx) {
+        if (ctx.actuallyFired) {
+            setStatus(SentryStatus.SHOOTING);
+            this.shootDelayAccumulator = 8.0f;
+        } else {
+            setStatus(SentryStatus.IDLE);
+            if (this.triggerHoldTime > 60) {
+                this.shootDelayAccumulator = 10.0f;
+                this.triggerHoldTime = 0;
+            } else {
+                this.shootDelayAccumulator = 0f;
+            }
+        }
+    }
+
+    private void handleAdaptiveAutoStrategy(FireContext ctx) {
+
+        if (this.isTestingRelease) {
+            if (ctx.actuallyFired) {
+                this.isTestingRelease = false;
+            } else {
+                this.releaseWatchTimer--;
+                if (this.releaseWatchTimer <= 0) {
+                    this.currentTimeoutThreshold = Math.min(this.currentTimeoutThreshold * 2, 1200);
+                    this.isTestingRelease = false;
+                }
+            }
+        }
+
+        String currentScriptDataStr = getLuaDataSnapshot(ctx.dataHolder.scriptData);
+        float currentAimingProgress = ctx.operator.getSynAimingProgress();
+        boolean isScriptChanging = !currentScriptDataStr.equals(this.lastScriptDataStr);
+        boolean isProgressChanging = Math.abs(currentAimingProgress - this.lastAimingProgress) > 0.001f;
+        this.lastScriptDataStr = currentScriptDataStr;
+        this.lastAimingProgress = currentAimingProgress;
+
+        boolean isGunActive = ctx.actuallyFired || isScriptChanging || isProgressChanging;
+
+        if (isGunActive && !this.wasCharging) {
+            sendActionPacket(euphy.upo.sentrymechanicalarm.network.SentryShootPacket.ActionType.CHARGE);
+        }
+        this.wasCharging = isGunActive;
+
+        if (ctx.actuallyFired) {
+            setStatus(SentryStatus.SHOOTING);
+            this.triggerHoldTime = 0;
+            this.shootDelayAccumulator = 0f;
+            this.wasCharging = false;
+        } else if (isGunActive) {
+            setStatus(SentryStatus.CHARGING);
+            this.triggerHoldTime++;
+            if (this.triggerHoldTime > this.currentTimeoutThreshold) {
+                this.shootDelayAccumulator = 10.0f;
+                this.triggerHoldTime = 0;
+                this.isTestingRelease = true;
+                this.releaseWatchTimer = 20;
+            } else {
+                this.shootDelayAccumulator = 0f;
+            }
+        } else {
+            setStatus(SentryStatus.IDLE);
+            this.triggerHoldTime++;
+            if (this.triggerHoldTime > 60) {
+                this.shootDelayAccumulator = 10.0f;
+                this.triggerHoldTime = 0;
+            } else {
+                this.shootDelayAccumulator = 0f;
+            }
+        }
+    }
+
+    private void sendShootPacket(FakePlayer fakePlayer) {
+        Vec3 realStart = fakePlayer.getEyePosition();
+        Vec3 lookVec = fakePlayer.getViewVector(1.0F);
+        Vec3 traceEnd = realStart.add(lookVec.scale(100));
+        BlockHitResult hitResult = this.level.clip(new ClipContext(
+                realStart, traceEnd,
+                ClipContext.Block.COLLIDER,
+                ClipContext.Fluid.NONE,
+                fakePlayer));
+
+        NetworkHandler.sendToNearby(
+                new SentryShootPacket(
+                        this.worldPosition, -1, heldItem.getOrCreateTag(), realStart, hitResult.getLocation()),
+                this.level, this.worldPosition);
+    }
+
+    private boolean tryConsumeGenericAmmo(net.minecraftforge.common.util.FakePlayer fakePlayer, net.minecraft.resources.ResourceLocation ammoId) {
+        if (ammoId == null) return false;
+        net.minecraft.world.entity.player.Inventory inventory = fakePlayer.getInventory();
+
+        for (int i = 9; i < inventory.getContainerSize(); i++) {
+            ItemStack stack = inventory.getItem(i);
+            if (stack.isEmpty()) continue;
+
+            if (stack.getItem() instanceof com.tacz.guns.api.item.IAmmoBox iBox) {
+                if (iBox.isAllTypeCreative(stack)) {
+                    return true;
+                }
+
+                if (java.util.Objects.equals(iBox.getAmmoId(stack), ammoId)) {
+                    if (iBox.isCreative(stack)) return true;
+
+                    if (iBox.getAmmoCount(stack) > 0) {
+                        iBox.setAmmoCount(stack, iBox.getAmmoCount(stack) - 1);
+                        return true;
+                    }
                 }
             }
         }
         return false;
     }
 
-    private boolean performSingleShot(float targetYaw, float targetPitch, IGun iGun, GunData gunData, int currentGunAmmo, ItemStack ammoSource) {
-        FakePlayer fakePlayer = SentryFakePlayer.get(this);
-        if (fakePlayer == null) return false;
-
-        SentryFakePlayer.sync(fakePlayer, this, targetYaw, targetPitch, heldItem);
-        Vec3 muzzlePos = getActualMuzzlePos();
-
-        fakePlayer.setPos(muzzlePos.x, muzzlePos.y - fakePlayer.getEyeHeight(), muzzlePos.z);
-        fakePlayer.xo = fakePlayer.getX();
-        fakePlayer.yo = fakePlayer.getY();
-        fakePlayer.zo = fakePlayer.getZ();
-        fakePlayer.xOld = fakePlayer.getX();
-        fakePlayer.yOld = fakePlayer.getY();
-        fakePlayer.zOld = fakePlayer.getZ();
-        fakePlayer.setGameMode(GameType.CREATIVE);
-        IGunOperator operator = IGunOperator.fromLivingEntity(fakePlayer);
+    private void applySentryAccuracyModifier(IGunOperator operator, IGun iGun, ItemStack gunStack, GunData gunData) {
         AttachmentCacheProperty cache = operator.getCacheProperty();
+        if (cache == null) return;
 
-
-        if (cache != null) {
-            double distToTarget = 0.0;
-            if (this.cachedTarget != null) {
-                distToTarget = Math.sqrt(this.cachedTarget.distanceToSqr(this.worldPosition.getCenter()));
-            } else if (this.cachedTargetBlock != null) {
-                distToTarget = Math.sqrt(this.cachedTargetBlock.distToCenterSqr(this.worldPosition.getCenter()));
-            }
-
-            float effectiveRange = calculateEffectiveRange(gunData);
-
-            ResourceLocation gunId = iGun.getGunId(heldItem);
-
-            boolean isSniper = false;
-            Optional<CommonGunIndex> gunIndexOpt = TimelessAPI.getCommonGunIndex(gunId);
-
-            if (gunIndexOpt.isPresent()) {
-                String type = gunIndexOpt.get().getType();
-                if ("sniper".equalsIgnoreCase(type)) {
-                    isSniper = true;
-                }
-            }
-
-            float targetSpread;
-
-            if (isSniper) {
-                targetSpread = 0.0f;
-            } else if (distToTarget <= effectiveRange) {
-                targetSpread = 0.0f;
-            } else {
-                double excessDistance = distToTarget - effectiveRange;
-                targetSpread = (float) (excessDistance * 0.02);
-                targetSpread = Math.min(targetSpread, 5.0f);
-            }
-
-
-            Map<InaccuracyType, Float> cachedMap = cache.getCache(GunProperties.INACCURACY);
-            Map<InaccuracyType, Float> mutableInaccuracyMap;
-            if (cachedMap != null) {
-                mutableInaccuracyMap = new HashMap<>(cachedMap);
-            } else {
-                mutableInaccuracyMap = new EnumMap<>(InaccuracyType.class);
-            }
-            mutableInaccuracyMap.put(InaccuracyType.AIM, targetSpread);
-            mutableInaccuracyMap.put(InaccuracyType.STAND, targetSpread);
-            cache.setCache(GunProperties.INACCURACY, mutableInaccuracyMap);
+        double distToTarget = 0.0;
+        if (this.cachedTarget != null) {
+            distToTarget = Math.sqrt(this.cachedTarget.distanceToSqr(this.worldPosition.getCenter()));
+        } else if (this.cachedTargetBlock != null) {
+            distToTarget = Math.sqrt(this.cachedTargetBlock.distToCenterSqr(this.worldPosition.getCenter()));
         }
+
+        float effectiveRange = calculateEffectiveRange(gunData);
+        ResourceLocation gunId = iGun.getGunId(gunStack);
+
+        boolean isSniper = false;
+        Optional<CommonGunIndex> gunIndexOpt = TimelessAPI.getCommonGunIndex(gunId);
+        if (gunIndexOpt.isPresent()) {
+            String type = gunIndexOpt.get().getType();
+            if ("sniper".equalsIgnoreCase(type)) {
+                isSniper = true;
+            }
+        }
+
+        float targetSpread;
+        if (isSniper) {
+            targetSpread = 0.0f;
+        } else if (distToTarget <= effectiveRange) {
+            targetSpread = 0.1f;
+        } else {
+            double excessDistance = distToTarget - effectiveRange;
+            targetSpread = (float) (excessDistance * 0.02);
+            targetSpread = Math.min(targetSpread, 5.0f);
+        }
+
+        Map<InaccuracyType, Float> cachedMap = cache.getCache(GunProperties.INACCURACY);
+        Map<InaccuracyType, Float> mutableInaccuracyMap;
+
+        if (cachedMap != null) {
+            mutableInaccuracyMap = new HashMap<>(cachedMap);
+        } else {
+            mutableInaccuracyMap = new EnumMap<>(InaccuracyType.class);
+        }
+
+        mutableInaccuracyMap.put(InaccuracyType.AIM, targetSpread);
+        mutableInaccuracyMap.put(InaccuracyType.STAND, targetSpread);
+        cache.setCache(GunProperties.INACCURACY, mutableInaccuracyMap);
 
         operator.getDataHolder().isAiming = true;
         operator.getDataHolder().aimingProgress = 1.0f;
-
-
-        boolean usedCheatAmmo = false;
-        ItemStack fakeHeldItem = fakePlayer.getMainHandItem();
-        IGun iGunFake = IGun.getIGunOrNull(fakeHeldItem);
-
-        if (currentGunAmmo <= 0 && !ammoSource.isEmpty() && iGunFake != null) {
-            ResourceLocation ammoId = gunData.getAmmoId();
-            net.minecraft.world.item.Item ammoItem = ForgeRegistries.ITEMS.getValue(ammoId);
-            if (ammoItem != null) {
-                fakePlayer.getInventory().add(new ItemStack(ammoItem, 64));
-            }
-            iGunFake.setCurrentAmmoCount(fakeHeldItem, 1);
-            usedCheatAmmo = true;
-        }
-
-        this.lastShootTime = System.currentTimeMillis();
-
-        ShootResult result;
-        try {
-            result = operator.shoot(() -> targetPitch, () -> targetYaw);
-        } catch (Exception e) {
-            return false;
-        }
-        boolean isScriptGun = (operator.getDataHolder().scriptData != null);
-
-        if (result == ShootResult.NEED_BOLT) {
-            operator.bolt();
-            return false;
-        }
-
-        if (result == ShootResult.SUCCESS) {
-            if (isScriptGun) {
-                this.shootDelayAccumulator += 30.0f;
-            }
-
-            int slotToSync = -2;
-            ItemStack stackToSync = ItemStack.EMPTY;
-            if (usedCheatAmmo) {
-                iGun.setCurrentAmmoCount(heldItem, 0);
-                IAmmoBox iBox = (IAmmoBox) ammoSource.getItem();
-                if (!iBox.isCreative(ammoSource) && !iBox.isAllTypeCreative(ammoSource)) {
-                    iBox.setAmmoCount(ammoSource, iBox.getAmmoCount(ammoSource) - 1);
-                    stackToSync = ammoSource;
-                    for (int i = 0; i < attachedAmmoBoxes.size(); i++) {
-                        if (attachedAmmoBoxes.get(i) == ammoSource) { slotToSync = i; break; }
-                    }
-                }
-            } else {
-                int newAmmoCount = Math.max(0, currentGunAmmo - 1);
-                iGun.setCurrentAmmoCount(heldItem, newAmmoCount);
-                slotToSync = -1;
-                stackToSync = heldItem;
-            }
-
-            if (usedCheatAmmo) {
-                fakePlayer.getInventory().clearContent();
-            }
-
-
-            Vec3 realStart = fakePlayer.getEyePosition();
-            Vec3 lookVec = fakePlayer.getViewVector(1.0F);
-            Vec3 traceEnd = realStart.add(lookVec.scale(100));
-            net.minecraft.world.phys.BlockHitResult hitResult = this.level.clip(new net.minecraft.world.level.ClipContext(
-                    realStart, traceEnd,
-                    net.minecraft.world.level.ClipContext.Block.COLLIDER,
-                    net.minecraft.world.level.ClipContext.Fluid.NONE,
-                    fakePlayer
-            ));
-            Vec3 realEnd = hitResult.getLocation();
-
-            NetworkHandler.sendToNearby(
-                    new SentryShootPacket(this.worldPosition, slotToSync,
-                            stackToSync.isEmpty() ? new CompoundTag() : stackToSync.getOrCreateTag(),
-                            realStart, realEnd),
-                    this.level, this.worldPosition
-            );
-            return true;
-        } else {
-            if (usedCheatAmmo) {
-                iGun.setCurrentAmmoCount(heldItem, 0);
-                fakePlayer.getInventory().clearContent();
-            }
-            return false;
-        }
     }
+
+    private boolean performInstantReload(net.minecraftforge.common.util.FakePlayer fakePlayer, com.tacz.guns.api.item.IGun iGun, ItemStack gunStack) {
+        net.minecraft.resources.ResourceLocation gunId = iGun.getGunId(gunStack);
+        java.util.Optional<com.tacz.guns.resource.index.CommonGunIndex> gunIndexOpt = com.tacz.guns.api.TimelessAPI.getCommonGunIndex(gunId);
+        if (gunIndexOpt.isEmpty()) return false;
+
+        com.tacz.guns.resource.pojo.data.gun.GunData gunData = gunIndexOpt.get().getGunData();
+        net.minecraft.resources.ResourceLocation neededAmmoId = gunData.getAmmoId();
+        int maxAmmo = gunData.getAmmoAmount();
+        int currentAmmo = iGun.getCurrentAmmoCount(gunStack);
+        int neededAmount = maxAmmo - currentAmmo;
+
+        if (neededAmount <= 0) return true;
+
+        int totalReloaded = 0;
+        net.minecraft.world.entity.player.Inventory inventory = fakePlayer.getInventory();
+
+        for (int i = 9; i < inventory.getContainerSize(); i++) {
+            ItemStack stack = inventory.getItem(i);
+            if (stack.isEmpty()) continue;
+
+            if (stack.getItem() instanceof com.tacz.guns.api.item.IAmmoBox iBox) {
+                if (iBox.isAllTypeCreative(stack) || (iBox.isCreative(stack) && java.util.Objects.equals(iBox.getAmmoId(stack), neededAmmoId))) {
+                    totalReloaded = neededAmount;
+                    break;
+                }
+                if (java.util.Objects.equals(iBox.getAmmoId(stack), neededAmmoId)) {
+                    int boxCount = iBox.getAmmoCount(stack);
+                    int toTake = Math.min(boxCount, neededAmount - totalReloaded);
+
+                    iBox.setAmmoCount(stack, boxCount - toTake);
+                    totalReloaded += toTake;
+
+                    if (totalReloaded >= neededAmount) break;
+                }
+            }
+        }
+
+        if (totalReloaded > 0) {
+            iGun.setCurrentAmmoCount(gunStack, currentAmmo + totalReloaded);
+
+            if (!iGun.hasBulletInBarrel(gunStack) && iGun.getCurrentAmmoCount(gunStack) > 0) {
+                iGun.reduceCurrentAmmoCount(gunStack);
+                iGun.setBulletInBarrel(gunStack, true);
+            }
+
+            com.tacz.guns.api.entity.IGunOperator operator = com.tacz.guns.api.entity.IGunOperator.fromLivingEntity(fakePlayer);
+            if (operator != null) {
+                com.tacz.guns.entity.shooter.ShooterDataHolder holder = operator.getDataHolder();
+                holder.reloadStateType = com.tacz.guns.api.entity.ReloadState.StateType.NOT_RELOADING;
+                holder.reloadTimestamp = -1L;
+                holder.isBolting = false;
+                holder.boltTimestamp = -1L;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
 
     private float calculateEffectiveRange(GunData gunData) {
         BulletData bulletData = gunData.getBulletData();
@@ -829,7 +1095,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             effectiveRange = (speed > 0 ? speed : 10.0f) * 12.0f;
         }
 
-        return effectiveRange;
+        return Math.max(effectiveRange, 8.0f);
     }
 
     private void popAmmoBox() {
@@ -872,31 +1138,55 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         return true;
     }
 
-    private void addSentryGunTooltip(List<Component> tooltip, ItemStack heldItem) {
-        IGun iGun = (IGun) heldItem.getItem();
-        Component indent = Component.literal("    ");
+    private void addSentryGunTooltip(java.util.List<Component> tooltip, ItemStack heldItem) {
+        if (!(heldItem.getItem() instanceof com.tacz.guns.api.item.IGun iGun)) return;
 
+        Component indent = Component.literal("    ");
         tooltip.add(indent.copy().append(Component.translatable("sentry.tooltip.firepower").withStyle(ChatFormatting.GRAY)));
 
+        ResourceLocation gunId = iGun.getGunId(heldItem);
+        Optional<CommonGunIndex> gunIndexOpt = TimelessAPI.getCommonGunIndex(gunId);
+
+        if (gunIndexOpt.isEmpty()) return;
+        GunData gunData = gunIndexOpt.get().getGunData();
+
         int currentAmmo = iGun.getCurrentAmmoCount(heldItem);
+        //if (iGun.hasBulletInBarrel(heldItem)) currentAmmo++;
+        if (iGun.useInventoryAmmo(heldItem)) {
+            currentAmmo = 0;
+        }
         int totalAmmo = currentAmmo;
         boolean isInfinite = false;
+        ResourceLocation requiredAmmoId = gunData.getAmmoId();
 
         for (ItemStack box : attachedAmmoBoxes) {
             if (!box.isEmpty() && box.getItem() instanceof IAmmoBox iBox) {
-                if (iBox.isCreative(box) || iBox.isAllTypeCreative(box)) {
+                if (iBox.isAllTypeCreative(box)) {
                     isInfinite = true;
-                } else {
+                    break;
+                }
+                ResourceLocation boxAmmoId = iBox.getAmmoId(box);
+                if (requiredAmmoId != null && requiredAmmoId.equals(boxAmmoId)) {
+                    if (iBox.isCreative(box)) {
+                        isInfinite = true;
+                        break;
+                    }
                     totalAmmo += iBox.getAmmoCount(box);
                 }
             }
         }
 
+        boolean isAbnormalAmmo = totalAmmo > 100000;
         if (isInfinite) {
             tooltip.add(indent.copy().append(Component.translatable("sentry.tooltip.ammo")
-                    .withStyle(ChatFormatting.GOLD)
+                    .withStyle(net.minecraft.ChatFormatting.GOLD)
                     .append(Component.literal(" ∞")
                             .withStyle(ChatFormatting.AQUA))));
+        } else if (isAbnormalAmmo) {
+            tooltip.add(indent.copy().append(Component.translatable("sentry.tooltip.ammo")
+                    .withStyle(net.minecraft.ChatFormatting.GOLD)
+                    .append(Component.literal(" /")
+                            .withStyle(ChatFormatting.GRAY))));
         } else {
             tooltip.add(indent.copy().append(Component.translatable("sentry.tooltip.ammo")
                     .withStyle(ChatFormatting.GOLD)
@@ -909,12 +1199,75 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
                 .append(heldItem.getHoverName().copy()
                         .withStyle(ChatFormatting.WHITE))));
 
+        if (gunData.hasHeatData()) {
+            float currentHeat = iGun.getHeatAmount(heldItem);
+            float maxHeat = gunData.getHeatData().getHeatMax();
+
+            int totalBars = 10;
+            int filledBars = (int) ((currentHeat / maxHeat) * totalBars);
+            filledBars = Math.max(0, Math.min(filledBars, totalBars));
+
+            StringBuilder barBuilder = new StringBuilder("[");
+            for (int i = 0; i < totalBars; i++) {
+                barBuilder.append(i < filledBars ? "▌" : " ");
+            }
+            barBuilder.append("]");
+
+            ChatFormatting color = ChatFormatting.GREEN;
+            if ((float)filledBars / totalBars > 0.75) color = ChatFormatting.RED;
+            else if ((float)filledBars / totalBars > 0.4) color = ChatFormatting.YELLOW;
+
+            tooltip.add(indent.copy().append(Component.translatable("sentry.tooltip.heat")
+                    .withStyle(net.minecraft.ChatFormatting.GOLD)
+                    .append(Component.literal(barBuilder.toString())
+                            .withStyle(color))
+                    .append(Component.literal(String.format(" %.0f/%.0f", currentHeat, maxHeat))
+                            .withStyle(net.minecraft.ChatFormatting.GRAY))));
+        }
+
         double range = this.getSentryRange();
         String rangeStr = String.format("%.1f", range);
-        tooltip.add(indent.copy().append(Component.translatable("sentry.tooltip.range")
-                .withStyle(ChatFormatting.GOLD)
-                .append(Component.literal(rangeStr)
-                        .withStyle(ChatFormatting.GREEN))));
+        tooltip.add(indent.copy().append(net.minecraft.network.chat.Component.translatable("sentry.tooltip.range")
+                .withStyle(net.minecraft.ChatFormatting.GOLD)
+                .append(net.minecraft.network.chat.Component.literal(rangeStr)
+                        .withStyle(net.minecraft.ChatFormatting.GREEN))));
+
+        MutableComponent statusComponent = Component.translatable("sentry.status.unknown");
+        ChatFormatting statusColor = ChatFormatting.GRAY;
+        switch (this.currentStatus) {
+            case IDLE -> {
+                statusComponent = Component.translatable("sentry.status.idle");
+                statusColor = ChatFormatting.GREEN;
+            }
+            case SHOOTING -> {
+                statusComponent = Component.translatable("sentry.status.shooting");
+                statusColor = ChatFormatting.RED;
+            }
+            case CHARGING -> {
+                statusComponent = Component.translatable("sentry.status.charging");
+                statusColor = ChatFormatting.GOLD;
+            }
+            case BOLTING -> {
+                statusComponent = Component.translatable("sentry.status.bolting");
+                statusColor = ChatFormatting.YELLOW;
+            }
+            case RELOADING -> {
+                statusComponent = Component.translatable("sentry.status.reloading");
+                statusColor = ChatFormatting.YELLOW;
+            }
+            case COOLING -> {
+                statusComponent = Component.translatable("sentry.status.cooling");
+                statusColor = ChatFormatting.AQUA;
+            }
+            case NO_AMMO -> {
+                statusComponent = Component.translatable("sentry.status.no_ammo");
+                statusColor = ChatFormatting.DARK_RED;
+            }
+        }
+
+        tooltip.add(indent.copy().append(Component.translatable("sentry.tooltip.status")
+                .withStyle(ChatFormatting.GRAY)
+                .append(statusComponent.withStyle(statusColor))));
     }
 
     public void triggerShootEffects() {
@@ -931,19 +1284,6 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             headAngle.setValue(currentHead - 0.5f);
         }
 
-        /*
-        ItemStack gun = getHeldItem();
-        if (!gun.isEmpty() && gun.getItem() instanceof IGun iGun) {
-            Optional<CommonGunIndex> indexOpt = TimelessAPI.getCommonGunIndex(iGun.getGunId(gun));
-            indexOpt.ifPresent(index -> {
-
-                Vec3 center = this.worldPosition.getCenter();
-                ArmSoundHelper.playFireEffects(
-                        null, this.level, center, new Vec3(0,0,0), 0, gun, index.getGunData()
-                );
-            });
-        }
-         */
     }
 
     public void updateAmmoFromPacket(int slotIndex, CompoundTag newTag) {
@@ -1026,11 +1366,10 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             Optional<CommonGunIndex> indexOpt = TimelessAPI.getCommonGunIndex(iGun.getGunId(stack));
             if (indexOpt.isPresent()) {
                 float effRange = calculateEffectiveRange(indexOpt.get().getGunData());
-
-                max = Math.round(effRange * 2);;
+                int calculatedMax = Math.round(effRange * 2);
+                max = Math.min(calculatedMax, 256);
                 if (max < 4) max = 4;
-                smartDefault = Math.round(effRange * 1.5f);
-
+                smartDefault = Math.min(Math.round(effRange * 1.5f), 256);
             }
         }else {
             rangeScroll.between(0, 0);
@@ -1053,6 +1392,15 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         }
     }
 
+    private void sendActionPacket(SentryShootPacket.ActionType type) {
+        FakePlayer fakePlayer = SentryFakePlayer.get(this);
+        if (fakePlayer == null) return;
+        Vec3 pos = fakePlayer.getEyePosition();
+        NetworkHandler.sendToNearby(
+                new SentryShootPacket(
+                        this.worldPosition, -1, heldItem.getOrCreateTag(), pos, pos, type),
+                this.level, this.worldPosition);
+    }
 
     private void sentryIdleScanning() {
         if (!this.level.isClientSide) {
@@ -1120,6 +1468,18 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         return true;
     }
 
+    private void setStatus(SentryStatus newStatus) {
+        if (this.currentStatus != newStatus) {
+            this.currentStatus = newStatus;
+
+            this.setChanged();
+
+            if (this.level != null && !this.level.isClientSide) {
+                this.level.sendBlockUpdated(this.worldPosition, this.getBlockState(), this.getBlockState(), 3);
+            }
+        }
+    }
+
     @Override
     public CompoundTag getUpdateTag() {
         CompoundTag tag = new CompoundTag();
@@ -1150,6 +1510,31 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         return state.hasProperty(SentryArmBlock.CEILING) && state.getValue(SentryArmBlock.CEILING);
     }
 
+
+    private String getLuaDataSnapshot(org.luaj.vm2.LuaValue luaValue) {
+        if (luaValue == null || luaValue.isnil()) {
+            return "nil";
+        }
+
+        if (luaValue.istable()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("{");
+
+            org.luaj.vm2.LuaValue k = org.luaj.vm2.LuaValue.NIL;
+            while (true) {
+                org.luaj.vm2.Varargs n = luaValue.next(k);
+                if ((k = n.arg1()).isnil()) break;
+                org.luaj.vm2.LuaValue v = n.arg(2);
+
+                sb.append(k.toString()).append(":").append(v.toString()).append(",");
+            }
+
+            sb.append("}");
+            return sb.toString();
+        }
+
+        return luaValue.toString();
+    }
 
     @Override
     protected void read(CompoundTag compound, boolean clientPacket) {
@@ -1215,6 +1600,12 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         } else {
             color = Optional.empty();
         }
+        if (compound.contains("SentryStatus")) {
+            int statusIdx = compound.getInt("SentryStatus");
+            if (statusIdx >= 0 && statusIdx < SentryStatus.values().length) {
+                this.currentStatus = SentryStatus.values()[statusIdx];
+            }
+        }
         updateRangeScrollBounds();
     }
 
@@ -1245,7 +1636,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             compound.put("TargetBlock", NbtUtils.writeBlockPos(this.cachedTargetBlock));
         }
         color.ifPresent(dyeColor -> NBTHelper.writeEnum(compound, "Dye", dyeColor));
-
+        compound.putInt("SentryStatus", this.currentStatus.ordinal());
     }
 
     @Override

@@ -221,7 +221,7 @@ public class SentryArmRenderer extends KineticBlockEntityRenderer<SentryArmBlock
         VertexConsumer consumerBg = buffer.getBuffer(RenderType.entityTranslucent(muzzleFlash.getTexture()));
         drawCrossQuad(ms, consumerBg, 1.0f);
 
-        VertexConsumer consumerFg = buffer.getBuffer(RenderType.energySwirl(muzzleFlash.getTexture(), 0, 0));
+        VertexConsumer consumerFg = buffer.getBuffer(RenderType.entityTranslucent(muzzleFlash.getTexture()));
         ms.pushPose();
         ms.scale(0.5f, 0.5f, 0.5f);
         drawCrossQuad(ms, consumerFg, 1.0f);

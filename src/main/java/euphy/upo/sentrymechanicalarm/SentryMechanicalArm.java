@@ -18,7 +18,7 @@ import org.slf4j.Logger;
 public class SentryMechanicalArm
 {
     public static final String MODID = "sentrymechanicalarm";
-    private static final Logger LOGGER = LogUtils.getLogger();
+    public static final Logger LOGGER = LogUtils.getLogger();
 
     public SentryMechanicalArm(FMLJavaModLoadingContext context)
     {

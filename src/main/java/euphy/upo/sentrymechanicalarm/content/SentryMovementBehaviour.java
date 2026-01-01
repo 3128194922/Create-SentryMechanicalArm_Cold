@@ -33,6 +33,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -117,12 +118,10 @@ public class SentryMovementBehaviour implements MovementBehaviour {
             tickServerLogic(context);
         }
 
-
         virtualBE.baseAngle.tickChaser();
         virtualBE.headAngle.tickChaser();
         virtualBE.lowerArmAngle.tickChaser();
         virtualBE.upperArmAngle.tickChaser();
-
 
     }
 
@@ -253,43 +252,31 @@ public class SentryMovementBehaviour implements MovementBehaviour {
         IGun iGun = (IGun) gunStack.getItem();
         ResourceLocation gunId = iGun.getGunId(gunStack);
 
-        boolean useInternalAmmo = false;
-        boolean useExternalAmmo = false;
-
         int currentInternalAmmo = iGun.getCurrentAmmoCount(gunStack);
-        if (currentInternalAmmo > 0) {
-            useInternalAmmo = true;
-        } else {
-            java.util.concurrent.atomic.AtomicReference<ResourceLocation> ammoIdRef = new java.util.concurrent.atomic.AtomicReference<>(null);
-            TimelessAPI.getCommonGunIndex(gunId).ifPresent(index -> ammoIdRef.set(index.getGunData().getAmmoId()));
-            ResourceLocation requiredAmmoId = ammoIdRef.get();
+        boolean hasInternal = currentInternalAmmo > 0;
 
-            if (requiredAmmoId != null) {
-                if (consumeAmmoFromContraption(context.contraption, gunStack, true)) {
-                    useExternalAmmo = true;
-                }
-            }
+        java.util.concurrent.atomic.AtomicReference<ResourceLocation> ammoIdRef = new java.util.concurrent.atomic.AtomicReference<>(null);
+        TimelessAPI.getCommonGunIndex(gunId).ifPresent(index -> ammoIdRef.set(index.getGunData().getAmmoId()));
+        ResourceLocation requiredAmmoId = ammoIdRef.get();
+
+        boolean hasExternal = false;
+        if (requiredAmmoId != null) {
+            hasExternal = consumeAmmoFromContraption(context.contraption, gunStack, true);
         }
 
-        if (!useInternalAmmo && !useExternalAmmo) return false;
+        if (!hasInternal && !hasExternal) {
+            return false;
+        }
 
         FakePlayer fp = SentryFakePlayer.getForContraption(serverLevel, context.contraption.entity.getUUID(), context.localPos);
         if (fp == null) return false;
-
-        SentryFakePlayer.sync(fp, virtualBE, globalYaw, globalPitch, gunStack);
-
-        if (useExternalAmmo) {
-            ItemStack fakeHeldItem = fp.getMainHandItem();
-            IGun iGunFake = IGun.getIGunOrNull(fakeHeldItem);
-            if (iGunFake != null) {
-                iGunFake.setCurrentAmmoCount(fakeHeldItem, 1);
-            }
-        }
 
         double feetY = barrelGlobalPos.y - 1.62;
         fp.setPos(barrelGlobalPos.x, feetY, barrelGlobalPos.z);
         fp.xo = barrelGlobalPos.x; fp.yo = feetY; fp.zo = barrelGlobalPos.z;
         fp.xOld = barrelGlobalPos.x; fp.yOld = feetY; fp.zOld = barrelGlobalPos.z;
+
+        SentryFakePlayer.sync(fp, virtualBE, globalYaw, globalPitch, gunStack);
 
         IGunOperator operator = IGunOperator.fromLivingEntity(fp);
         operator.getDataHolder().isAiming = true;
@@ -299,43 +286,68 @@ public class SentryMovementBehaviour implements MovementBehaviour {
             GunData gunData = index.getGunData();
             float effectiveRange = calculateEffectiveRange(gunData);
             float targetSpread = 0.0f;
-
             if (distToTarget > effectiveRange) {
                 double excessDistance = distToTarget - effectiveRange;
                 targetSpread = (float) (excessDistance * 0.02);
                 targetSpread = Math.min(targetSpread, 5.0f);
             }
-
             AttachmentCacheProperty cache = operator.getCacheProperty();
             if (cache != null) {
                 String inaccuracyId = GunProperties.INACCURACY.name();
                 @SuppressWarnings("unchecked")
                 Map<InaccuracyType, Float> cachedMap = (Map<InaccuracyType, Float>) cache.getCache(inaccuracyId);
-
-                Map<InaccuracyType, Float> mutableInaccuracyMap;
-                if (cachedMap != null) {
-                    mutableInaccuracyMap = new HashMap<>(cachedMap);
-                } else {
-                    mutableInaccuracyMap = new EnumMap<>(InaccuracyType.class);
-                }
-
+                Map<InaccuracyType, Float> mutableInaccuracyMap = (cachedMap != null) ? new HashMap<>(cachedMap) : new EnumMap<>(InaccuracyType.class);
                 mutableInaccuracyMap.put(InaccuracyType.AIM, targetSpread);
                 mutableInaccuracyMap.put(InaccuracyType.STAND, targetSpread);
                 mutableInaccuracyMap.put(InaccuracyType.MOVE, targetSpread);
-                mutableInaccuracyMap.put(InaccuracyType.SNEAK, targetSpread);
-                mutableInaccuracyMap.put(InaccuracyType.LIE, targetSpread);
-
                 cache.setCache(GunProperties.INACCURACY, mutableInaccuracyMap);
             }
         });
 
-        ShootResult result = operator.shoot(() -> globalPitch, () -> globalYaw);
+        ShootResult result = ShootResult.UNKNOWN_FAIL;
+        boolean consumedInternal = false;
+        boolean consumedExternal = false;
+
+        if (hasInternal) {
+            try {
+                fp.setGameMode(GameType.SURVIVAL);
+                result = operator.shoot(() -> globalPitch, () -> globalYaw);
+            } catch (Exception e) {}
+
+            if (result == ShootResult.SUCCESS) {
+                consumedInternal = true;
+            } else if (result == ShootResult.NO_AMMO) {
+            } else {
+                return false;
+            }
+        }
+
+        if (result != ShootResult.SUCCESS && hasExternal) {
+            SentryFakePlayer.setTempCreative(fp, true);
+
+            try {
+                result = operator.shoot(() -> globalPitch, () -> globalYaw);
+            } catch (Exception ignored) {
+            } finally {
+                SentryFakePlayer.setTempCreative(fp, false);
+            }
+
+            if (result == ShootResult.SUCCESS) {
+                consumedExternal = true;
+            }
+        }
 
         if (result == ShootResult.SUCCESS) {
-            if (useInternalAmmo) {
-                iGun.setCurrentAmmoCount(gunStack, currentInternalAmmo - 1);
-            } else if (useExternalAmmo) {
+
+            if (hasExternal) {
                 consumeAmmoFromContraption(context.contraption, gunStack, false);
+                if (consumedInternal) {
+                    iGun.setCurrentAmmoCount(gunStack, currentInternalAmmo);
+                }
+            } else {
+                if (consumedInternal) {
+                    iGun.setCurrentAmmoCount(gunStack, currentInternalAmmo - 1);
+                }
             }
 
             virtualBE.setLastShootTime(System.currentTimeMillis());
@@ -358,6 +370,7 @@ public class SentryMovementBehaviour implements MovementBehaviour {
 
             return true;
         }
+
         return false;
     }
 
