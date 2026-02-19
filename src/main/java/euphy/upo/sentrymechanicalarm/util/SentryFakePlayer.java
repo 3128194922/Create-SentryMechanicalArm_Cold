@@ -55,6 +55,38 @@ public class SentryFakePlayer {
         public boolean isCreative() {
             return this.fakeCreativeMode || super.isCreative();
         }
+
+        // justlevelingfork Compat
+        private static java.lang.reflect.Constructor<?> cachedAptitudeConstructor = null;
+        private static boolean aptitudeLookupFailed = false;
+
+        @Override
+        public <T> net.minecraftforge.common.util.LazyOptional<T> getCapability(net.minecraftforge.common.capabilities.Capability<T> cap, @org.jetbrains.annotations.Nullable net.minecraft.core.Direction side) {
+            if (cap.getName().contains("justlevelingfork") && cap.getName().contains("AptitudeCapability")) {
+
+                if (cachedAptitudeConstructor == null && !aptitudeLookupFailed) {
+                    try {
+                        Class<?> clazz = Class.forName("com.seniors.justlevelingfork.common.capability.AptitudeCapability");
+                        cachedAptitudeConstructor = clazz.getConstructor();
+                    } catch (Exception e) {
+                        aptitudeLookupFailed = true;
+                    }
+                }
+
+                if (cachedAptitudeConstructor != null) {
+                    return net.minecraftforge.common.util.LazyOptional.of(() -> {
+                        try {
+                            return (T) cachedAptitudeConstructor.newInstance();
+                        } catch (Exception e) {
+                            throw new RuntimeException("Failed to instantiate dummy aptitude", e);
+                        }
+                    }).cast();
+                }
+            }
+
+            return super.getCapability(cap, side);
+        }
+        // justlevelingfork Compat
     }
 
     public static void setTempCreative(FakePlayer fp, boolean active) {

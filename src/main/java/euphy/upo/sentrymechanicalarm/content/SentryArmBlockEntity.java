@@ -9,6 +9,7 @@ import com.simibubi.create.foundation.virtualWorld.VirtualRenderWorld;
 import com.tacz.guns.api.GunProperties;
 import com.tacz.guns.api.TimelessAPI;
 import com.tacz.guns.api.entity.IGunOperator;
+import com.tacz.guns.api.entity.ReloadState;
 import com.tacz.guns.api.entity.ShootResult;
 import com.tacz.guns.api.item.IAmmoBox;
 import com.tacz.guns.api.item.IGun;
@@ -44,6 +45,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.ContainerHelper;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.monster.Enemy;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
@@ -328,7 +330,9 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
                 } else if (lineOfSightTicker++ >= 10) {
                     lineOfSightTicker = 0;
                     currentTickBestPos = getBestTargetPos(cachedTarget);
-                    if (currentTickBestPos == null) invalid = true;
+                    if (currentTickBestPos == null) {
+                        invalid = true;
+                    }
                 }
             }
             else if (cachedTargetBlock != null) {
@@ -399,7 +403,7 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
                 float currentUpperArm = upperArmAngle.getValue();
                 boolean isDeployed = currentUpperArm > 80f;
 
-                if (deviation < 6.0 && isDeployed) {
+                if (deviation < 1.0 && isDeployed) {
                     fireGun(currentWorldYaw, currentWorldPitch);
                 }
             }
@@ -522,8 +526,11 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         final boolean finalWhitelistMode = isWhitelistMode;
         final List<String> finalList = activeWhitelist;
 
+        final double maxRangeSq = range * range;
+        final Vec3 center = this.worldPosition.getCenter();
         AABB area = new AABB(this.worldPosition).inflate(range);
         List<LivingEntity> potentialTargets = this.level.getEntitiesOfClass(LivingEntity.class, area, e -> {
+            if (e.distanceToSqr(center) > maxRangeSq) return false;
             if (!e.isAlive() || e.isSpectator()) return false;
             if (finalStrict) {
                 if (finalList == null || finalList.isEmpty()) {
@@ -572,8 +579,6 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
             BlockPos bestBlock = null;
             double minDstSqr = range * range;
             Vec3 muzzle = this.getActualMuzzlePos();
-            Vec3 center = this.worldPosition.getCenter();
-
             for (BlockPos pos : targets) {
                 double dstSqr = center.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
                 if (dstSqr > minDstSqr) continue;
@@ -1016,12 +1021,12 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
     }
 
     private boolean performInstantReload(net.minecraftforge.common.util.FakePlayer fakePlayer, com.tacz.guns.api.item.IGun iGun, ItemStack gunStack) {
-        net.minecraft.resources.ResourceLocation gunId = iGun.getGunId(gunStack);
-        java.util.Optional<com.tacz.guns.resource.index.CommonGunIndex> gunIndexOpt = com.tacz.guns.api.TimelessAPI.getCommonGunIndex(gunId);
+        ResourceLocation gunId = iGun.getGunId(gunStack);
+        Optional<CommonGunIndex> gunIndexOpt = TimelessAPI.getCommonGunIndex(gunId);
         if (gunIndexOpt.isEmpty()) return false;
 
-        com.tacz.guns.resource.pojo.data.gun.GunData gunData = gunIndexOpt.get().getGunData();
-        net.minecraft.resources.ResourceLocation neededAmmoId = gunData.getAmmoId();
+        GunData gunData = gunIndexOpt.get().getGunData();
+        ResourceLocation neededAmmoId = gunData.getAmmoId();
         int maxAmmo = gunData.getAmmoAmount();
         int currentAmmo = iGun.getCurrentAmmoCount(gunStack);
         int neededAmount = maxAmmo - currentAmmo;
@@ -1029,18 +1034,18 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
         if (neededAmount <= 0) return true;
 
         int totalReloaded = 0;
-        net.minecraft.world.entity.player.Inventory inventory = fakePlayer.getInventory();
+       Inventory inventory = fakePlayer.getInventory();
 
         for (int i = 9; i < inventory.getContainerSize(); i++) {
             ItemStack stack = inventory.getItem(i);
             if (stack.isEmpty()) continue;
 
-            if (stack.getItem() instanceof com.tacz.guns.api.item.IAmmoBox iBox) {
-                if (iBox.isAllTypeCreative(stack) || (iBox.isCreative(stack) && java.util.Objects.equals(iBox.getAmmoId(stack), neededAmmoId))) {
+            if (stack.getItem() instanceof IAmmoBox iBox) {
+                if (iBox.isAllTypeCreative(stack) || (iBox.isCreative(stack) && Objects.equals(iBox.getAmmoId(stack), neededAmmoId))) {
                     totalReloaded = neededAmount;
                     break;
                 }
-                if (java.util.Objects.equals(iBox.getAmmoId(stack), neededAmmoId)) {
+                if (Objects.equals(iBox.getAmmoId(stack), neededAmmoId)) {
                     int boxCount = iBox.getAmmoCount(stack);
                     int toTake = Math.min(boxCount, neededAmount - totalReloaded);
 
@@ -1060,10 +1065,10 @@ public class SentryArmBlockEntity extends KineticBlockEntity implements IArmAmmo
                 iGun.setBulletInBarrel(gunStack, true);
             }
 
-            com.tacz.guns.api.entity.IGunOperator operator = com.tacz.guns.api.entity.IGunOperator.fromLivingEntity(fakePlayer);
+            IGunOperator operator = IGunOperator.fromLivingEntity(fakePlayer);
             if (operator != null) {
-                com.tacz.guns.entity.shooter.ShooterDataHolder holder = operator.getDataHolder();
-                holder.reloadStateType = com.tacz.guns.api.entity.ReloadState.StateType.NOT_RELOADING;
+                ShooterDataHolder holder = operator.getDataHolder();
+                holder.reloadStateType = ReloadState.StateType.NOT_RELOADING;
                 holder.reloadTimestamp = -1L;
                 holder.isBolting = false;
                 holder.boltTimestamp = -1L;
