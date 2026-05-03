@@ -24,14 +24,17 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.registries.ForgeRegistries;
 
 public class SentryMechanicalArmScene {
+
     public static void introducing(SceneBuilder builder, SceneBuildingUtil util) {
         CreateSceneBuilder scene = new CreateSceneBuilder(builder);
 
         scene.title("sentry_arm_intro", "哨兵机械臂简介");
-        scene.configureBasePlate(0, 0, 5); 
+        scene.configureBasePlate(0, 0, 5);
         scene.showBasePlate();
 
         BlockPos sentryPos = util.grid().at(2, 1, 2);
@@ -41,14 +44,14 @@ public class SentryMechanicalArmScene {
         Selection cogS1 = util.select().position(cog_1);
         Selection cogS2 = util.select().position(cog_2);
 
-        BlockPos targetPos = util.grid().at(2, 2, 2); 
+        BlockPos targetPos = util.grid().at(2, 2, 2);
 
         Item ammoItem = ForgeRegistries.ITEMS.getValue(new ResourceLocation("tacz", "ammo_box"));
         ItemStack ammoStack = new ItemStack(ammoItem);
 
-        scene.idle(20); 
+        scene.idle(20);
 
-        scene.world().showSection(sentrySelect, Direction.DOWN);
+        ElementLink<WorldSectionElement> sentryLink = scene.world().showIndependentSection(sentrySelect, Direction.DOWN);
         scene.idle(10);
 
         scene.overlay().showText(50)
@@ -57,13 +60,11 @@ public class SentryMechanicalArmScene {
                 .placeNearTarget();
         scene.idle(60);
 
-
         scene.overlay().showText(60)
                 .text("手持一把来自TacZ的枪械，按[O]即可将其部署")
                 .pointAt(util.vector().topOf(sentryPos))
                 .attachKeyFrame()
                 .placeNearTarget();
-
         scene.idle(40);
 
         scene.world().modifyBlockEntity(sentryPos, SentryArmBlockEntity.class, be -> be.setHeldItem(createGun("tacz:qbz_191")));
@@ -93,21 +94,20 @@ public class SentryMechanicalArmScene {
                 .pointAt(util.vector().topOf(sentryPos))
                 .attachKeyFrame()
                 .placeNearTarget();
-
         scene.idle(40);
+
         scene.world().modifyBlockEntity(sentryPos, SentryArmBlockEntity.class, be -> {
             be.attachedAmmoBoxes.set(1, ammoStack);
         });
         scene.idle(30);
 
-        scene.world().showSection(cogS1, Direction.DOWN);
-        scene.world().showSection(cogS2, Direction.DOWN);
+        ElementLink<WorldSectionElement> cog1Link = scene.world().showIndependentSection(cogS1, Direction.DOWN);
+        ElementLink<WorldSectionElement> cog2Link = scene.world().showIndependentSection(cogS2, Direction.DOWN);
         scene.idle(20);
 
         scene.world().setKineticSpeed(util.select().everywhere(), -64);
         scene.world().setKineticSpeed(cogS1, 64);
         scene.idle(12);
-
 
         scene.overlay().showText(60)
                 .text("接入应力，它就会开始工作，自动索敌所有的敌对生物")
@@ -120,11 +120,39 @@ public class SentryMechanicalArmScene {
             fire(scene, sentryPos, targetPos, util);
             scene.idle(3);
         }
-
         scene.idle(25);
 
-        scene.markAsFinished();
+        scene.world().moveSection(sentryLink, util.vector().of(0, 1, 0), 20);
+        scene.world().moveSection(cog1Link, util.vector().of(0, 1, 0), 20);
+        scene.world().moveSection(cog2Link, util.vector().of(0, 1, 0), 20);
+        scene.idle(25);
 
+        BlockPos tempBarrelSpawnPos = util.grid().at(4, 1, 2);
+        scene.world().setBlock(tempBarrelSpawnPos, Blocks.BARREL.defaultBlockState(), false);
+
+        ElementLink<WorldSectionElement> barrelLink = scene.world().showIndependentSection(util.select().position(tempBarrelSpawnPos), Direction.NORTH);
+
+        scene.world().moveSection(barrelLink, util.vector().of(-2, 0, 0), 0);
+        scene.idle(15);
+
+        scene.overlay().showText(120)
+                .text("若下方有容器，则会收集掉落物和经验并放入下方的容器中。")
+                .pointAt(util.vector().blockSurface(sentryPos, Direction.WEST))
+                .attachKeyFrame()
+                .placeNearTarget();
+        scene.idle(40);
+
+        Vec3 barrelTop = util.vector().topOf(sentryPos);
+
+        scene.overlay().showControls(barrelTop.add(0, -1.5, 0), Pointing.UP, 40)
+                .withItem(new ItemStack(Items.ROTTEN_FLESH));
+        scene.idle(15);
+
+        scene.overlay().showControls(barrelTop.add(0.5, -1, 0), Pointing.RIGHT, 40)
+                .withItem(new ItemStack(Items.BONE));
+        scene.idle(40);
+
+        scene.markAsFinished();
     }
 
     public static void supplying(SceneBuilder builder, SceneBuildingUtil util) {

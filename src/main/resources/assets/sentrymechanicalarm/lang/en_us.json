@@ -55,6 +55,7 @@
   "sentrymechanicalarm.ponder.sentry_arm_intro.text_2": "Hold a TacZ weapon and press [O] to deploy it.",
   "sentrymechanicalarm.ponder.sentry_arm_intro.text_3": "Right-click with an Ammo Box to load it; Shift-Right-click to remove it.",
   "sentrymechanicalarm.ponder.sentry_arm_intro.text_4": "Once connected to rotational power, it will activate and automatically target all hostile mobs.",
+  "sentrymechanicalarm.ponder.sentry_arm_intro.text_5": "Collects dropped items and experience into a container below, if present.",
   "sentrymechanicalarm.ponder.sentry_arm_supply.header": "Logistical Supply",
   "sentrymechanicalarm.ponder.sentry_arm_supply.text_1": "If you want the Sentry Mechanical Arm to have sustained firepower...",
   "sentrymechanicalarm.ponder.sentry_arm_supply.text_2": "You need to build a logistical supply chain for it.",

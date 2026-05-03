@@ -23,7 +23,7 @@ import java.util.WeakHashMap;
 public class SentryFakePlayer {
 
     private static final WeakHashMap<SentryArmBlockEntity, FakePlayer> FAKE_PLAYERS = new WeakHashMap<>();
-
+    private static final WeakHashMap<FakePlayer, SentryArmBlockEntity> REVERSE_MAP = new WeakHashMap<>();
     private static final Map<String, RobustFakePlayer> CONTRAPTION_FAKE_PLAYERS = new HashMap<>();
 
     private static final java.util.Map<FakePlayer, Boolean> FIRED_TRACKER = java.util.Collections.synchronizedMap(new WeakHashMap<>());
@@ -100,10 +100,16 @@ public class SentryFakePlayer {
 
     public static FakePlayer get(SentryArmBlockEntity arm) {
         if (!(arm.getLevel() instanceof ServerLevel serverLevel)) return null;
-        return FAKE_PLAYERS.computeIfAbsent(arm, k -> {
+        FakePlayer fp = FAKE_PLAYERS.computeIfAbsent(arm, k -> {
             String name = "Sentry_" + arm.getBlockPos().getX() + "_" + arm.getBlockPos().getY() + "_" + arm.getBlockPos().getZ();
             return createRobustFakePlayer(serverLevel, name);
         });
+        REVERSE_MAP.put(fp, arm);
+        return fp;
+    }
+
+    public static SentryArmBlockEntity getArmFromPlayer(FakePlayer fp) {
+        return REVERSE_MAP.get(fp);
     }
 
     public static FakePlayer getForContraption(ServerLevel level, UUID contraptionUUID, BlockPos localPos) {

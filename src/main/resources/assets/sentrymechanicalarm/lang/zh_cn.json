@@ -73,6 +73,7 @@
   "sentrymechanicalarm.ponder.sentry_arm_intro.text_2": "手持一把来自TacZ的武器，按[O]即可将其部署。",
   "sentrymechanicalarm.ponder.sentry_arm_intro.text_3": "手持弹药盒右键装载，SHIFT右键可取下。",
   "sentrymechanicalarm.ponder.sentry_arm_intro.text_4": "接入应力，它就会开始工作，自动索敌所有的敌对生物。",
+  "sentrymechanicalarm.ponder.sentry_arm_intro.text_5": "若下方有容器，则会收集掉落物和经验并放入下方的容器中。",
   "sentrymechanicalarm.ponder.sentry_arm_supply.header": "后勤供应",
   "sentrymechanicalarm.ponder.sentry_arm_supply.text_1": "如果想要哨戒动力臂拥有持久的火力……",
   "sentrymechanicalarm.ponder.sentry_arm_supply.text_2": "你需要为它打造一套后勤供应。",

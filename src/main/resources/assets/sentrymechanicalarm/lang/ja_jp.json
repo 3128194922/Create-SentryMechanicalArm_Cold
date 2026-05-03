@@ -54,6 +54,7 @@
 	"sentrymechanicalarm.ponder.sentry_arm_intro.text_2": "[O]キーを押すことで、手持ちの銃を装着できます。",
 	"sentrymechanicalarm.ponder.sentry_arm_intro.text_3": "弾薬箱も右クリックによって装着することができます。",
 	"sentrymechanicalarm.ponder.sentry_arm_intro.text_4": "回転力を供給することで、自動的に射撃を開始します。",
+	"sentrymechanicalarm.ponder.sentry_arm_intro.text_5": "下にコンテナがある場合、ドロップアイテムと経験値を自動収集します。",
 	"sentrymechanicalarm.ponder.sentry_arm_supply.header": "補給",
 	"sentrymechanicalarm.ponder.sentry_arm_supply.text_1": "セントリーメカニカルアームによる射撃を維持するために...",
 	"sentrymechanicalarm.ponder.sentry_arm_supply.text_2": "補給用の物流を構築することができます。",
