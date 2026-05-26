@@ -6,6 +6,12 @@
 
 本项目**完全仿照** `Create-SentryMechanicalArm-1.20.1-0.3.0` 的思路实现，但去掉了第三方枪械依赖，改为围绕 `Create` 与原版武器体系制作攻击机械臂。
 
+## 参考MOD
+https://github.com/Aupoex/Create-SentryMechanicalArm
+
+https://github.com/MarkusBordihn/BOs-Easy-NPC
+https://github.com/Mercurows/SuperbWarfare
+
 ## 当前实现方向
 
 - 新增 `攻击机械臂`

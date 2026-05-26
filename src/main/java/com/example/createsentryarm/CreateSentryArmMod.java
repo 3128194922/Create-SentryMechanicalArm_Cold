@@ -11,10 +11,10 @@ import com.example.createsentryarm.content.BlazeFireControlBlock;
 import com.example.createsentryarm.content.BlazeFireControlBlockEntity;
 import com.example.createsentryarm.content.FireControlClipboardItem;
 import com.example.createsentryarm.content.FireControlMenu;
+import com.example.createsentryarm.content.FireControlMovementBehaviour;
 import com.example.createsentryarm.network.CSANetwork;
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.api.behaviour.movement.MovementBehaviour;
-import com.simibubi.create.content.kinetics.base.KineticBlockEntityRenderer;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
@@ -24,6 +24,7 @@ import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
@@ -56,7 +57,7 @@ public class CreateSentryArmMod {
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MODID);
 
     public static final RegistryObject<Block> ATTACK_ARM = BLOCKS.register("attack_arm",
-            () -> new AttackArmBlock(Block.Properties.ofFullCopy(com.simibubi.create.AllBlocks.MECHANICAL_ARM.get())));
+            () -> new AttackArmBlock(Block.Properties.of().strength(3.0F).noOcclusion()));
     public static final RegistryObject<Item> ATTACK_ARM_ITEM = ITEMS.register("attack_arm",
             () -> new BlockItem(ATTACK_ARM.get(), new Item.Properties()));
     public static final RegistryObject<BlockEntityType<AttackArmBlockEntity>> ATTACK_ARM_BE =
@@ -106,7 +107,7 @@ public class CreateSentryArmMod {
             return;
         }
         BLAZE_FIRE_CONTROL = BLOCKS.register("blaze_fire_control",
-                () -> new BlazeFireControlBlock(Block.Properties.ofFullCopy(net.minecraft.world.level.block.Blocks.BRASS_BLOCK).noOcclusion()));
+                () -> new BlazeFireControlBlock(Block.Properties.copy(Blocks.BRICKS).noOcclusion()));
         BLAZE_FIRE_CONTROL_ITEM = ITEMS.register("blaze_fire_control",
                 () -> new BlockItem(BLAZE_FIRE_CONTROL.get(), new Item.Properties()));
         BLAZE_FIRE_CONTROL_BE = BLOCK_ENTITY_TYPES.register("blaze_fire_control",

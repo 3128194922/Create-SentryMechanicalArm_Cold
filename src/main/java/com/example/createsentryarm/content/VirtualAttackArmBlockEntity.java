@@ -2,14 +2,13 @@ package com.example.createsentryarm.content;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 
 public class VirtualAttackArmBlockEntity extends AttackArmBlockEntity {
     private BlockPos virtualPos;
 
-    public VirtualAttackArmBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
-        super(type, pos, state);
+    public VirtualAttackArmBlockEntity(BlockPos pos, BlockState state) {
+        super(pos, state);
         this.virtualPos = pos;
     }
 

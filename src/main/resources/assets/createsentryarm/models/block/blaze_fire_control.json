@@ -1,8 +1,4 @@
 {
   "parent": "create:block/blaze_burner/block",
-  "render_type": "translucent",
-  "textures": {
-    "0": "createsentryarm:block/blaze_fire_control",
-    "particle": "createsentryarm:block/blaze_fire_control"
-  }
+  "render_type": "translucent"
 }

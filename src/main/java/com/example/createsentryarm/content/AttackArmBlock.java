@@ -1,7 +1,6 @@
 package com.example.createsentryarm.content;
 
 import com.example.createsentryarm.CreateSentryArmMod;
-import com.simibubi.create.AllItems;
 import com.simibubi.create.AllShapes;
 import com.simibubi.create.content.equipment.potatoCannon.PotatoCannonItem;
 import com.simibubi.create.content.kinetics.base.KineticBlock;
@@ -12,14 +11,12 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.AxeItem;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.BowItem;
 import net.minecraft.world.item.CrossbowItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.LingeringPotionItem;
 import net.minecraft.world.item.SplashPotionItem;
-import net.minecraft.world.item.SwordItem;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
@@ -31,6 +28,7 @@ import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import net.minecraftforge.registries.ForgeRegistries;
 
 public class AttackArmBlock extends KineticBlock implements IBE<AttackArmBlockEntity>, ICogWheel {
     public static final BooleanProperty CEILING = BooleanProperty.create("ceiling");
@@ -85,7 +83,10 @@ public class AttackArmBlock extends KineticBlock implements IBE<AttackArmBlockEn
     @Override
     public InteractionResult use(BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult hit) {
         ItemStack stack = player.getItemInHand(hand);
-        if (AllItems.WRENCH.isIn(stack)) {
+        var itemId = ForgeRegistries.ITEMS.getKey(stack.getItem());
+        boolean looksLikeWrench = itemId != null && ("create".equals(itemId.getNamespace()) && "wrench".equals(itemId.getPath())
+                || itemId.getPath().contains("wrench"));
+        if (looksLikeWrench) {
             return InteractionResult.PASS;
         }
         if (hand != InteractionHand.MAIN_HAND) {
@@ -127,8 +128,6 @@ public class AttackArmBlock extends KineticBlock implements IBE<AttackArmBlockEn
                 || stack.getItem() instanceof CrossbowItem
                 || stack.getItem() instanceof SplashPotionItem
                 || stack.getItem() instanceof LingeringPotionItem
-                || stack.getItem() instanceof SwordItem
-                || stack.getItem() instanceof AxeItem
                 || stack.getItem() instanceof PotatoCannonItem;
     }
 }

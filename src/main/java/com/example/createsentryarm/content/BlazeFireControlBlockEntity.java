@@ -1,5 +1,6 @@
 package com.example.createsentryarm.content;
 
+import com.example.createsentryarm.CreateSentryArmMod;
 import com.simibubi.create.foundation.blockEntity.SmartBlockEntity;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import net.minecraft.core.BlockPos;
@@ -8,7 +9,6 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
@@ -35,8 +35,8 @@ public class BlazeFireControlBlockEntity extends SmartBlockEntity {
     };
     private LazyOptional<IItemHandler> itemHandler = LazyOptional.of(() -> inventory);
 
-    public BlazeFireControlBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
-        super(type, pos, state);
+    public BlazeFireControlBlockEntity(BlockPos pos, BlockState state) {
+        super(CreateSentryArmMod.BLAZE_FIRE_CONTROL_BE.get(), pos, state);
     }
 
     @Override

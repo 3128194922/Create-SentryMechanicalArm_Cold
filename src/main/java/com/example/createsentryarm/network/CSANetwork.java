@@ -33,6 +33,16 @@ public class CSANetwork {
         CHANNEL.registerMessage(id++, LinkFireControlPacket.class, LinkFireControlPacket::encode, LinkFireControlPacket::decode, LinkFireControlPacket::handle);
     }
 
+    private static ItemStack getHeldClipboard(ServerPlayer player) {
+        if (player.getMainHandItem().getItem() instanceof FireControlClipboardItem) {
+            return player.getMainHandItem();
+        }
+        if (player.getOffhandItem().getItem() instanceof FireControlClipboardItem) {
+            return player.getOffhandItem();
+        }
+        return ItemStack.EMPTY;
+    }
+
     public record ToggleClipboardModePacket() {
         public static void encode(ToggleClipboardModePacket packet, FriendlyByteBuf buf) {
         }
@@ -45,8 +55,8 @@ public class CSANetwork {
             ctx.get().enqueueWork(() -> {
                 ServerPlayer player = ctx.get().getSender();
                 if (player == null) return;
-                ItemStack stack = player.getMainHandItem();
-                if (stack.getItem() instanceof FireControlClipboardItem) {
+                ItemStack stack = getHeldClipboard(player);
+                if (!stack.isEmpty()) {
                     stack.getOrCreateTag().putBoolean("WhitelistMode", !stack.getOrCreateTag().getBoolean("WhitelistMode"));
                 }
             });
@@ -67,8 +77,8 @@ public class CSANetwork {
             ctx.get().enqueueWork(() -> {
                 ServerPlayer player = ctx.get().getSender();
                 if (player == null) return;
-                ItemStack stack = player.getMainHandItem();
-                if (stack.getItem() instanceof FireControlClipboardItem && stack.hasTag() && stack.getTag().contains("TargetList", 9)) {
+                ItemStack stack = getHeldClipboard(player);
+                if (!stack.isEmpty() && stack.hasTag() && stack.getTag().contains("TargetList", 9)) {
                     var list = stack.getTag().getList("TargetList", 8);
                     if (packet.index >= 0 && packet.index < list.size()) {
                         list.remove(packet.index);

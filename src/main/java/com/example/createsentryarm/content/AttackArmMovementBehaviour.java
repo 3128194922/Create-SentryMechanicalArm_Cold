@@ -24,7 +24,7 @@ public class AttackArmMovementBehaviour implements MovementBehaviour {
 
     @Override
     public void startMoving(MovementContext context) {
-        VirtualAttackArmBlockEntity virtualBE = new VirtualAttackArmBlockEntity(null, context.localPos, context.state);
+        VirtualAttackArmBlockEntity virtualBE = new VirtualAttackArmBlockEntity(context.localPos, context.state);
         virtualBE.setVirtualLevel(context.world);
         if (context.blockEntityData != null) {
             virtualBE.read(context.blockEntityData, false);
@@ -37,12 +37,15 @@ public class AttackArmMovementBehaviour implements MovementBehaviour {
 
     @Override
     public void tick(MovementContext context) {
-        if (!(context.temporaryData instanceof VirtualAttackArmBlockEntity virtualBE)) {
+        VirtualAttackArmBlockEntity virtualBE;
+        if (context.temporaryData instanceof VirtualAttackArmBlockEntity loaded) {
+            virtualBE = loaded;
+        } else {
             startMoving(context);
-            if (!(context.temporaryData instanceof VirtualAttackArmBlockEntity loaded)) {
+            if (!(context.temporaryData instanceof VirtualAttackArmBlockEntity created)) {
                 return;
             }
-            virtualBE = loaded;
+            virtualBE = created;
         }
 
         virtualBE.baseAngle.tickChaser();

@@ -21,6 +21,7 @@ import net.minecraft.client.renderer.entity.ItemRenderer;
 import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.LevelRenderer;
+import net.minecraft.core.Direction;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.BlockItem;
@@ -42,6 +43,15 @@ public class AttackArmRenderer extends KineticBlockEntityRenderer<AttackArmBlock
 
     @Override
     protected void renderSafe(AttackArmBlockEntity be, float partialTicks, PoseStack poseStack, MultiBufferSource buffer, int light, int overlay) {
+        VertexConsumer rotatingBuilder = buffer.getBuffer(RenderType.solid());
+        KineticBlockEntityRenderer.renderRotatingBuffer(
+                be,
+                CachedBuffers.partial(AllPartialModels.ARM_COG, be.getBlockState()),
+                poseStack,
+                rotatingBuilder,
+                light
+        );
+
         ItemStack item = be.getHeldItem();
         boolean hasItem = !item.isEmpty();
         boolean isBlockItem = false;
@@ -135,9 +145,11 @@ public class AttackArmRenderer extends KineticBlockEntityRenderer<AttackArmBlock
         float headAngle = virtualBE.headAngle.getValue(partialTicks);
         boolean inverted = blockState.getValue(AttackArmBlock.CEILING);
         int light = LightTexture.FULL_BRIGHT;
+        var localPos = net.createmod.catnip.math.VecHelper.getCenterOf(context.localPos);
+        var globalPos = context.contraption.entity != null
+                ? context.contraption.entity.toGlobalVector(localPos, partialTicks)
+                : localPos;
         if (context.contraption.entity != null) {
-            var localPos = net.createmod.catnip.math.VecHelper.getCenterOf(context.localPos);
-            var globalPos = context.contraption.entity.toGlobalVector(localPos, partialTicks);
             light = LevelRenderer.getLightColor(context.world, BlockPos.containing(globalPos));
         }
 
@@ -153,6 +165,12 @@ public class AttackArmRenderer extends KineticBlockEntityRenderer<AttackArmBlock
         if (inverted) {
             transform.rotateXDegrees(180);
         }
+
+        float kineticAngle = KineticBlockEntityRenderer.getAngleForBe(virtualBE, BlockPos.containing(globalPos), Direction.Axis.Y);
+        CachedBuffers.partial(AllPartialModels.ARM_COG, blockState)
+                .light(light)
+                .rotateCentered(kineticAngle, Direction.UP)
+                .renderInto(matrices.getViewProjection(), builder);
 
         SuperByteBuffer base = CachedBuffers.partial(AllPartialModels.ARM_BASE, blockState).light(light);
         SuperByteBuffer lowerBody = CachedBuffers.partial(AllPartialModels.ARM_LOWER_BODY, blockState).light(light);

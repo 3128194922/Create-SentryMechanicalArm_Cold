@@ -3,13 +3,13 @@ package com.example.createsentryarm.client;
 import com.example.createsentryarm.content.AttackArmBlockEntity;
 import com.example.createsentryarm.content.BlazeFireControlBlockEntity;
 import com.example.createsentryarm.network.CSANetwork;
-import com.simibubi.create.AllItems;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -27,7 +27,10 @@ public class SentryLinkHandler {
         }
         Player player = event.getEntity();
         ItemStack held = player.getMainHandItem();
-        if (!held.is(AllItems.WRENCH.get()) && !held.getItem().getDescriptionId().contains("wrench")) {
+        var itemId = ForgeRegistries.ITEMS.getKey(held.getItem());
+        boolean looksLikeWrench = itemId != null && ("create".equals(itemId.getNamespace()) && "wrench".equals(itemId.getPath())
+                || itemId.getPath().contains("wrench"));
+        if (!looksLikeWrench && !held.getItem().getDescriptionId().contains("wrench")) {
             firstSelectedPos = null;
             return;
         }

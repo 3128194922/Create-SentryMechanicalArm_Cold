@@ -12,6 +12,7 @@ import com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.ScrollVa
 import net.createmod.catnip.animation.LerpedFloat;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -23,24 +24,19 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.FireworkRocketEntity;
-import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.projectile.ThrownPotion;
 import net.minecraft.world.item.ArrowItem;
-import net.minecraft.world.item.AxeItem;
 import net.minecraft.world.item.BowItem;
 import net.minecraft.world.item.CrossbowItem;
-import net.minecraft.world.item.FireworkRocketItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.LingeringPotionItem;
+import net.minecraft.world.item.ProjectileWeaponItem;
 import net.minecraft.world.item.SplashPotionItem;
-import net.minecraft.world.item.SwordItem;
-import net.minecraft.world.item.alchemy.PotionUtils;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -68,8 +64,8 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
     private BlockPos connectedFireControlPos;
     public ScrollValueBehaviour rangeScroll;
 
-    public AttackArmBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
-        super(type, pos, state);
+    public AttackArmBlockEntity(BlockPos pos, BlockState state) {
+        super(CreateSentryArmMod.ATTACK_ARM_BE.get(), pos, state);
     }
 
     @Override
@@ -159,7 +155,7 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
     }
 
     protected double getAttackRange() {
-        return rangeScroll == null ? 24 : rangeScroll.getValue();
+        return Mth.clamp(Math.floor(Math.abs(getSpeed()) / 4.0), 4, 64);
     }
 
     protected Vec3 getMuzzlePos() {
@@ -265,47 +261,36 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
 
     public static int performAttack(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, LivingEntity target, float yaw, float pitch, @Nullable IItemHandler ammoHandler) {
         if (weapon.getItem() instanceof BowItem) {
-            return fireBow(level, pos, muzzlePos, weapon, yaw, pitch, ammoHandler);
+            return fireBow(level, pos, muzzlePos, weapon, target, ammoHandler);
         }
         if (weapon.getItem() instanceof CrossbowItem) {
-            return fireCrossbow(level, pos, muzzlePos, weapon, yaw, pitch, ammoHandler);
+            return fireCrossbow(level, pos, muzzlePos, weapon, target, ammoHandler);
         }
         if (weapon.getItem() instanceof SplashPotionItem || weapon.getItem() instanceof LingeringPotionItem) {
-            return throwPotion(level, pos, muzzlePos, weapon, yaw, pitch, ammoHandler);
+            return throwPotion(level, pos, muzzlePos, weapon, target, ammoHandler);
         }
         if (weapon.getItem() instanceof PotatoCannonItem) {
             return firePotatoCannon(level, pos, muzzlePos, weapon, yaw, pitch, ammoHandler);
         }
-        if (weapon.getItem() instanceof SwordItem || weapon.getItem() instanceof AxeItem) {
-            return doMelee(level, pos, muzzlePos, weapon, target, yaw, pitch);
-        }
         return 10;
     }
 
-    private static int doMelee(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, LivingEntity target, float yaw, float pitch) {
-        if (target.distanceToSqr(muzzlePos) > 16.0) {
-            return 4;
-        }
-        var fakePlayer = ArmFakePlayer.sync(level, pos, muzzlePos, yaw, pitch, weapon);
-        fakePlayer.attack(target);
-        if (weapon.isDamageableItem()) {
-            weapon.hurtAndBreak(1, fakePlayer, p -> {});
-        }
-        level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z, SoundEvents.PLAYER_ATTACK_SWEEP, SoundSource.BLOCKS, 0.5f, 1.0f);
-        return 12;
-    }
-
-    private static int fireBow(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, float yaw, float pitch, @Nullable IItemHandler ammoHandler) {
+    private static int fireBow(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, LivingEntity target, @Nullable IItemHandler ammoHandler) {
         ItemStack ammo = extractFromHandler(ammoHandler, stack -> stack.getItem() instanceof ArrowItem);
         if (ammo.isEmpty()) {
             return 10;
         }
+        Vec3 baseAim = target.position().subtract(muzzlePos);
+        float yaw = yawFromMotion(baseAim);
+        float pitch = pitchFromMotion(baseAim);
         var fakePlayer = ArmFakePlayer.sync(level, pos, muzzlePos, yaw, pitch, weapon);
-        AbstractArrow arrow = ((ArrowItem) ammo.getItem()).createArrow(level, ammo, fakePlayer);
-        arrow.setOwner(fakePlayer);
-        arrow.pickup = AbstractArrow.Pickup.DISALLOWED;
-        arrow.shootFromRotation(fakePlayer, pitch, yaw, 0, 3.0f, 1.0f);
-        arrow.setCritArrow(true);
+        AbstractArrow arrow = net.minecraft.world.entity.projectile.ProjectileUtil.getMobArrow(fakePlayer, ammo, 1.0f);
+        arrow.setPos(muzzlePos.x, muzzlePos.y, muzzlePos.z);
+        double targetX = target.getX() - muzzlePos.x;
+        double targetY = target.getY(0.3333333333333333D) - arrow.getY();
+        double targetZ = target.getZ() - muzzlePos.z;
+        double targetRadius = Math.sqrt(targetX * targetX + targetZ * targetZ);
+        arrow.shoot(targetX, targetY + targetRadius * 0.2F, targetZ, 1.6F, 14.0F - level.getDifficulty().getId() * 4);
         int power = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.POWER_ARROWS, weapon);
         if (power > 0) {
             arrow.setBaseDamage(arrow.getBaseDamage() + power * 0.5 + 0.5);
@@ -319,49 +304,68 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
         }
         level.addFreshEntity(arrow);
         weapon.hurtAndBreak(1, fakePlayer, p -> {});
-        level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z, SoundEvents.ARROW_SHOOT, SoundSource.BLOCKS, 1.0f, 1.0f);
+        level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z, SoundEvents.SKELETON_SHOOT, SoundSource.BLOCKS, 1.0f, 1.0f / (fakePlayer.getRandom().nextFloat() * 0.4F + 0.8F));
         return 20;
     }
 
-    private static int fireCrossbow(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, float yaw, float pitch, @Nullable IItemHandler ammoHandler) {
+    private static int fireCrossbow(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, LivingEntity target, @Nullable IItemHandler ammoHandler) {
         ItemStack ammo = extractFromHandler(ammoHandler, stack -> stack.getItem() instanceof ArrowItem || stack.is(Items.FIREWORK_ROCKET));
         if (ammo.isEmpty()) {
             return 10;
         }
+        Vec3 baseAim = target.position().subtract(muzzlePos);
+        float yaw = yawFromMotion(baseAim);
+        float pitch = pitchFromMotion(baseAim);
         var fakePlayer = ArmFakePlayer.sync(level, pos, muzzlePos, yaw, pitch, weapon);
+        double targetX = target.getX() - muzzlePos.x;
+        double targetY = target.getY(0.3333333333333333D) - muzzlePos.y;
+        double targetZ = target.getZ() - muzzlePos.z;
+        double targetRadius = Math.sqrt(targetX * targetX + targetZ * targetZ);
         int multishot = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.MULTISHOT, weapon) > 0 ? 3 : 1;
         int piercing = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.PIERCING, weapon);
+
         for (int i = 0; i < multishot; i++) {
-            float spread = multishot == 1 ? 0 : (i - 1) * 10f;
             if (ammo.is(Items.FIREWORK_ROCKET)) {
-                FireworkRocketEntity firework = new FireworkRocketEntity(level, ammo.copyWithCount(1), muzzlePos.x, muzzlePos.y, muzzlePos.z, true);
-                firework.shootFromRotation(fakePlayer, pitch, yaw + spread, 0, 1.6f, 1.0f);
-                level.addFreshEntity(firework);
-            } else {
-                AbstractArrow arrow = ((ArrowItem) ammo.getItem()).createArrow(level, ammo, fakePlayer);
-                arrow.setOwner(fakePlayer);
-                arrow.pickup = AbstractArrow.Pickup.DISALLOWED;
-                arrow.setPierceLevel((byte) piercing);
-                arrow.shootFromRotation(fakePlayer, pitch, yaw + spread, 0, 3.15f, 1.0f);
-                level.addFreshEntity(arrow);
+                FireworkRocketEntity rocket = new FireworkRocketEntity(level, ammo.copyWithCount(1), muzzlePos.x, muzzlePos.y, muzzlePos.z, true);
+                rocket.setOwner(fakePlayer);
+                rocket.shoot(targetX, targetY + targetRadius * 0.2F, targetZ, 1.6F, 0.0F);
+                level.addFreshEntity(rocket);
+                continue;
             }
+
+            AbstractArrow arrow = net.minecraft.world.entity.projectile.ProjectileUtil.getMobArrow(fakePlayer, ammo, 1.0f);
+            arrow.setOwner(fakePlayer);
+            arrow.pickup = AbstractArrow.Pickup.DISALLOWED;
+            arrow.setPos(muzzlePos.x, muzzlePos.y, muzzlePos.z);
+            arrow.setPierceLevel((byte) piercing);
+            arrow.shoot(targetX, targetY + targetRadius * 0.2F, targetZ, 1.6F, 0.0F);
+            level.addFreshEntity(arrow);
         }
         weapon.hurtAndBreak(1, fakePlayer, p -> {});
-        level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z, ammo.is(Items.FIREWORK_ROCKET) ? SoundEvents.CROSSBOW_SHOOT : SoundEvents.CROSSBOW_LOADING_END, SoundSource.BLOCKS, 1.0f, 1.0f);
+        level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z, SoundEvents.CROSSBOW_SHOOT, SoundSource.BLOCKS, 1.0f, 1.0f);
         int quickCharge = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.QUICK_CHARGE, weapon);
         return Math.max(6, 25 - quickCharge * 5);
     }
 
-    private static int throwPotion(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, float yaw, float pitch, @Nullable IItemHandler ammoHandler) {
+    private static int throwPotion(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, LivingEntity target, @Nullable IItemHandler ammoHandler) {
         ItemStack ammo = extractFromHandler(ammoHandler, stack -> ItemStack.isSameItemSameTags(stack, weapon));
         if (ammo.isEmpty()) {
             return 10;
         }
-        var fakePlayer = ArmFakePlayer.sync(level, pos, muzzlePos, yaw, pitch, weapon);
+        Vec3 targetPos = getBestTargetPos(level, muzzlePos, target);
+        if (targetPos == null) {
+            targetPos = target.getEyePosition();
+        }
+        Vec3 motion = ballisticPotionMotion(targetPos.subtract(muzzlePos), 2.5, 0.05, 0.99);
+        if (motion == null) {
+            Vec3 fallback = targetPos.subtract(muzzlePos).normalize().scale(0.75f);
+            motion = new Vec3(fallback.x, fallback.y, fallback.z);
+        }
+        var fakePlayer = ArmFakePlayer.sync(level, pos, muzzlePos, yawFromMotion(motion), pitchFromMotion(motion), weapon);
         ThrownPotion potion = new ThrownPotion(level, fakePlayer);
         potion.setItem(ammo.copyWithCount(1));
         potion.setPos(muzzlePos.x, muzzlePos.y, muzzlePos.z);
-        potion.shootFromRotation(fakePlayer, pitch - 20f, yaw, 0f, 0.75f, 8.0f);
+        potion.setDeltaMovement(motion);
         level.addFreshEntity(potion);
         level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z, SoundEvents.SPLASH_POTION_THROW, SoundSource.BLOCKS, 0.6f, 1.0f);
         return weapon.getItem() instanceof LingeringPotionItem ? 28 : 20;
@@ -378,16 +382,139 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
             return 10;
         }
         var fakePlayer = ArmFakePlayer.sync(level, pos, muzzlePos, yaw, pitch, weapon);
-        PotatoProjectileEntity projectile = new PotatoProjectileEntity(com.simibubi.create.AllEntityTypes.POTATO_PROJECTILE.get(), level);
+        net.minecraft.world.entity.EntityType<?> entityType = net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES
+                .getValue(new ResourceLocation("create", "potato_projectile"));
+        if (entityType == null) {
+            return 10;
+        }
+        @SuppressWarnings("unchecked")
+        net.minecraft.world.entity.EntityType<? extends net.minecraft.world.entity.projectile.AbstractHurtingProjectile> projectileType =
+                (net.minecraft.world.entity.EntityType<? extends net.minecraft.world.entity.projectile.AbstractHurtingProjectile>) entityType;
+        PotatoProjectileEntity projectile = new PotatoProjectileEntity(projectileType, level);
         projectile.setItem(ammo.copyWithCount(1));
         projectile.setEnchantmentEffectsFromCannon(weapon);
         projectile.setPos(muzzlePos.x, muzzlePos.y, muzzlePos.z);
         projectile.setOwner(fakePlayer);
-        projectile.shootFromRotation(fakePlayer, pitch, yaw, 0, 2.0f * typeRef.get().value().velocityMultiplier(), 1.0f);
+        Vec3 motion = directMotion(yaw, pitch, 2.0f * typeRef.get().value().velocityMultiplier());
+        projectile.setDeltaMovement(motion);
         level.addFreshEntity(projectile);
         weapon.hurtAndBreak(1, fakePlayer, p -> {});
         level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z, SoundEvents.GENERIC_EXPLODE, SoundSource.BLOCKS, 0.4f, typeRef.get().value().soundPitch());
         return Math.max(6, typeRef.get().value().reloadTicks());
+    }
+
+    private static Vec3 directMotion(float yaw, float pitch, double speed) {
+        return Vec3.directionFromRotation(pitch, yaw).scale(speed);
+    }
+
+    private static float yawFromMotion(Vec3 motion) {
+        return (float) Math.toDegrees(Mth.atan2(motion.z, motion.x)) - 90f;
+    }
+
+    private static float pitchFromMotion(Vec3 motion) {
+        double horizontal = Math.sqrt(motion.x * motion.x + motion.z * motion.z);
+        return (float) -Math.toDegrees(Mth.atan2(motion.y, horizontal));
+    }
+
+    private static @Nullable Vec3 ballisticPotionMotion(Vec3 delta, double speed, double gravity, double drag) {
+        Vec3 dragMotion = dockerBallisticMotionDrag(delta.x, delta.y, delta.z, speed, gravity, drag, true, 160);
+        if (dragMotion != null) {
+            return dragMotion;
+        }
+        return dockerBallisticMotion(delta.x, delta.y, delta.z, speed, gravity, true);
+    }
+
+    private static @Nullable Vec3 dockerBallisticMotion(double dx, double dy, double dz, double v, double g, boolean preferHigh) {
+        double dh2 = dx * dx + dz * dz;
+        double a = g * g;
+        double b = 4.0 * (dy * g - v * v);
+        double c = 4.0 * (dh2 + dy * dy);
+        double discriminant = b * b - 4.0 * a * c;
+        if (discriminant < 0) {
+            return null;
+        }
+        double sqrtDisc = Math.sqrt(discriminant);
+        double u1 = (-b + sqrtDisc) / (2.0 * a);
+        double u2 = (-b - sqrtDisc) / (2.0 * a);
+        List<Double> solutions = new ArrayList<>();
+        if (u1 > 1e-9) {
+            solutions.add(u1);
+        }
+        if (u2 > 1e-9 && Math.abs(u2 - u1) > 1e-9) {
+            solutions.add(u2);
+        }
+        if (solutions.isEmpty()) {
+            return null;
+        }
+        solutions.sort(Double::compareTo);
+        double u = preferHigh ? solutions.get(solutions.size() - 1) : solutions.get(0);
+        double t = Math.sqrt(u);
+        if (!Double.isFinite(t) || t <= 1e-9) {
+            return null;
+        }
+        double vx = dx / t;
+        double vz = dz / t;
+        double vy = (dy + 0.5 * g * u) / t;
+        double mag = Math.sqrt(vx * vx + vy * vy + vz * vz);
+        if (!Double.isFinite(mag) || mag <= 1e-9) {
+            return null;
+        }
+        double scale = v / mag;
+        return new Vec3(vx * scale, vy * scale, vz * scale);
+    }
+
+    private static @Nullable Vec3 dockerBallisticMotionDrag(double dx, double dy, double dz, double v, double g, double drag, boolean preferHigh, int maxTicks) {
+        double tolerance = 0.05;
+        MotionCandidate bestLow = null;
+        MotionCandidate bestHigh = null;
+
+        double oneMinus = 1.0 - drag;
+        if (oneMinus <= 1e-9) {
+            return null;
+        }
+
+        for (int n = 2; n <= maxTicks; n++) {
+            double dn = Math.pow(drag, n);
+            double s = (1.0 - dn) / oneMinus;
+            if (!Double.isFinite(s) || s <= 1e-9) {
+                continue;
+            }
+
+            double vx0 = dx / s;
+            double vz0 = dz / s;
+            double vy0 = (dy + (drag * g / oneMinus) * (n - s)) / s;
+            if (!Double.isFinite(vx0) || !Double.isFinite(vy0) || !Double.isFinite(vz0)) {
+                continue;
+            }
+
+            double projectileSpeed = Math.sqrt(vx0 * vx0 + vy0 * vy0 + vz0 * vz0);
+            if (!Double.isFinite(projectileSpeed) || projectileSpeed <= 1e-9) {
+                continue;
+            }
+
+            double err = Math.abs(projectileSpeed - v);
+            if (err > v * tolerance) {
+                continue;
+            }
+
+            MotionCandidate candidate = new MotionCandidate(vx0, vy0, vz0, n, err, projectileSpeed);
+            if (bestLow == null || candidate.err < bestLow.err || (candidate.err == bestLow.err && candidate.ticks < bestLow.ticks)) {
+                bestLow = candidate;
+            }
+            if (bestHigh == null || candidate.err < bestHigh.err || (candidate.err == bestHigh.err && candidate.ticks > bestHigh.ticks)) {
+                bestHigh = candidate;
+            }
+        }
+
+        MotionCandidate picked = preferHigh ? bestHigh : bestLow;
+        if (picked == null) {
+            return null;
+        }
+        double scale = v / picked.speed;
+        return new Vec3(picked.x * scale, picked.y * scale, picked.z * scale);
+    }
+
+    private record MotionCandidate(double x, double y, double z, int ticks, double err, double speed) {
     }
 
     public static @Nullable IItemHandler getBelowHandler(ServerLevel level, BlockPos pos) {
