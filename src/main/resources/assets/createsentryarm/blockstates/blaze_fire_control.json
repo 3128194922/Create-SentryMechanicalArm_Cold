@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "createsentryarm:block/blaze_fire_control"
+    }
+  }
+}

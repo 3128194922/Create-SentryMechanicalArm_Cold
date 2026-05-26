@@ -1,0 +1,6 @@
+{
+  "itemGroup.createsentryarm.main": "Create Sentry Arm",
+  "block.createsentryarm.attack_arm": "攻击机械臂",
+  "block.createsentryarm.blaze_fire_control": "火控方块",
+  "item.createsentryarm.fire_control_clipboard": "火控剪贴板"
+}

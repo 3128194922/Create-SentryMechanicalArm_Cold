@@ -1,0 +1,99 @@
+package com.example.createsentryarm.content;
+
+import com.example.createsentryarm.client.AttackArmRenderer;
+import com.simibubi.create.api.behaviour.movement.MovementBehaviour;
+import com.simibubi.create.content.contraptions.AbstractContraptionEntity;
+import com.simibubi.create.content.contraptions.behaviour.MovementContext;
+import com.simibubi.create.content.contraptions.render.ContraptionMatrices;
+import com.simibubi.create.foundation.virtualWorld.VirtualRenderWorld;
+import net.createmod.catnip.math.VecHelper;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.api.distmarker.OnlyIn;
+import net.minecraftforge.items.IItemHandler;
+
+public class AttackArmMovementBehaviour implements MovementBehaviour {
+    @Override
+    public boolean isActive(MovementContext context) {
+        return true;
+    }
+
+    @Override
+    public void startMoving(MovementContext context) {
+        VirtualAttackArmBlockEntity virtualBE = new VirtualAttackArmBlockEntity(null, context.localPos, context.state);
+        virtualBE.setVirtualLevel(context.world);
+        if (context.blockEntityData != null) {
+            virtualBE.read(context.blockEntityData, false);
+        }
+        context.temporaryData = virtualBE;
+        if (!context.data.contains("AttackCooldown")) {
+            context.data.putInt("AttackCooldown", 0);
+        }
+    }
+
+    @Override
+    public void tick(MovementContext context) {
+        if (!(context.temporaryData instanceof VirtualAttackArmBlockEntity virtualBE)) {
+            startMoving(context);
+            if (!(context.temporaryData instanceof VirtualAttackArmBlockEntity loaded)) {
+                return;
+            }
+            virtualBE = loaded;
+        }
+
+        virtualBE.baseAngle.tickChaser();
+        virtualBE.lowerArmAngle.tickChaser();
+        virtualBE.upperArmAngle.tickChaser();
+        virtualBE.headAngle.tickChaser();
+
+        if (context.contraption.entity == null || virtualBE.getHeldItem().isEmpty() || context.motion.length() < 0.01) {
+            virtualBE.idlePose();
+            return;
+        }
+
+        AbstractContraptionEntity contraptionEntity = context.contraption.entity;
+        Vec3 localCenter = VecHelper.getCenterOf(context.localPos);
+        Vec3 globalCenter = contraptionEntity.toGlobalVector(localCenter, 1.0f);
+        virtualBE.setVirtualPos(BlockPos.containing(globalCenter));
+        virtualBE.setVirtualLevel(context.world);
+
+        Vec3 muzzlePos = globalCenter.add(0, context.state.getValue(AttackArmBlock.CEILING) ? -1.1 : 1.45, 0);
+        AttackArmBlockEntity.TargetFilter filter = FireControlMovementBehaviour.findFilter(context);
+        LivingEntity target = AttackArmBlockEntity.findTarget(context.world, muzzlePos, 24, filter, contraptionEntity);
+        if (target == null) {
+            virtualBE.idlePose();
+            return;
+        }
+
+        Vec3 targetPos = AttackArmBlockEntity.getBestTargetPos(context.world, muzzlePos, target);
+        if (targetPos == null) {
+            virtualBE.idlePose();
+            return;
+        }
+
+        float[] yawPitch = AttackArmBlockEntity.getYawPitch(muzzlePos, targetPos);
+        virtualBE.aimAtAngle(yawPitch[0], yawPitch[1]);
+
+        if (!context.world.isClientSide) {
+            int cooldown = context.data.getInt("AttackCooldown");
+            if (cooldown > 0) {
+                context.data.putInt("AttackCooldown", cooldown - 1);
+                return;
+            }
+            IItemHandler handler = context.contraption.getStorage().getAllItems();
+            int nextCooldown = AttackArmBlockEntity.performAttack((net.minecraft.server.level.ServerLevel) context.world,
+                    BlockPos.containing(globalCenter), muzzlePos, virtualBE.getHeldItem(), target, yawPitch[0], yawPitch[1], handler);
+            context.data.putInt("AttackCooldown", nextCooldown);
+        }
+    }
+
+    @Override
+    @OnlyIn(Dist.CLIENT)
+    public void renderInContraption(MovementContext context, VirtualRenderWorld renderWorld, ContraptionMatrices matrices, MultiBufferSource buffer) {
+        AttackArmRenderer.renderInContraption(context, renderWorld, matrices, buffer);
+    }
+}
