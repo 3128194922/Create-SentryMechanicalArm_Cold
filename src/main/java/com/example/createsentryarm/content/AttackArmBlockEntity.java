@@ -429,9 +429,12 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
         if (ammo.isEmpty()) {
             return 10;
         }
-        Vec3 targetPos = getBestTargetPos(level, muzzlePos, target);
-        if (targetPos == null) {
-            targetPos = target.getEyePosition();
+        Vec3 targetPos = target.position();
+        if (!isVisible(level, muzzlePos, targetPos)) {
+            Vec3 bodyPos = getBestTargetPos(level, muzzlePos, target);
+            if (bodyPos != null) {
+                targetPos = bodyPos;
+            }
         }
         Vec3 motion = ballisticPotionMotion(targetPos.subtract(muzzlePos), 2.5, 0.05, 0.99);
         if (motion == null) {
@@ -559,7 +562,7 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
 
             double vx0 = dx / s;
             double vz0 = dz / s;
-            double vy0 = (dy + (drag * g / oneMinus) * (n - s)) / s;
+            double vy0 = (dy + (g / oneMinus) * (n - s)) / s;
             if (!Double.isFinite(vx0) || !Double.isFinite(vy0) || !Double.isFinite(vz0)) {
                 continue;
             }
