@@ -9,6 +9,7 @@ import com.example.createsentryarm.content.AttackArmBlockEntity;
 import com.example.createsentryarm.content.AttackArmMovementBehaviour;
 import com.example.createsentryarm.content.BlazeFireControlBlock;
 import com.example.createsentryarm.content.BlazeFireControlBlockEntity;
+import com.example.createsentryarm.content.CreateArmInteractionPoints;
 import com.example.createsentryarm.content.FireControlClipboardItem;
 import com.example.createsentryarm.content.FireControlMenu;
 import com.example.createsentryarm.content.FireControlMovementBehaviour;
@@ -120,6 +121,7 @@ public class CreateSentryArmMod {
 
     private void commonSetup(final FMLCommonSetupEvent event) {
         event.enqueueWork(() -> {
+            CreateArmInteractionPoints.register();
             MovementBehaviour.REGISTRY.register(ATTACK_ARM.get(), new AttackArmMovementBehaviour());
             if (FIRE_CONTROL_ENABLED) {
                 MovementBehaviour.REGISTRY.register(BLAZE_FIRE_CONTROL.get(), new FireControlMovementBehaviour());

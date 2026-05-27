@@ -42,8 +42,12 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.core.Direction;
+import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.ForgeCapabilities;
+import net.minecraftforge.common.util.LazyOptional;
 import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.ItemHandlerHelper;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -63,6 +67,56 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
     private int syncedTargetId = -1;
     private BlockPos connectedFireControlPos;
     public ScrollValueBehaviour rangeScroll;
+    private final IItemHandler weaponHandler = new IItemHandler() {
+        @Override
+        public int getSlots() {
+            return 1;
+        }
+
+        @Override
+        public ItemStack getStackInSlot(int slot) {
+            return slot == 0 ? heldItem : ItemStack.EMPTY;
+        }
+
+        @Override
+        public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
+            if (slot != 0 || stack.isEmpty() || !AttackArmBlock.isSupportedWeapon(stack) || !heldItem.isEmpty()) {
+                return stack;
+            }
+            ItemStack remainder = stack.copy();
+            ItemStack inserted = remainder.split(1);
+            if (!simulate) {
+                setHeldItem(inserted);
+            }
+            return remainder;
+        }
+
+        @Override
+        public ItemStack extractItem(int slot, int amount, boolean simulate) {
+            if (slot != 0 || amount <= 0 || heldItem.isEmpty()) {
+                return ItemStack.EMPTY;
+            }
+            int extractedAmount = Math.min(amount, heldItem.getCount());
+            ItemStack extracted = ItemHandlerHelper.copyStackWithSize(heldItem, extractedAmount);
+            if (!simulate) {
+                ItemStack remainder = heldItem.copy();
+                remainder.shrink(extractedAmount);
+                setHeldItem(remainder);
+            }
+            return extracted;
+        }
+
+        @Override
+        public int getSlotLimit(int slot) {
+            return slot == 0 ? 1 : 0;
+        }
+
+        @Override
+        public boolean isItemValid(int slot, ItemStack stack) {
+            return slot == 0 && AttackArmBlock.isSupportedWeapon(stack);
+        }
+    };
+    private LazyOptional<IItemHandler> weaponHandlerCap = LazyOptional.of(() -> weaponHandler);
 
     public AttackArmBlockEntity(BlockPos pos, BlockState state) {
         super(CreateSentryArmMod.ATTACK_ARM_BE.get(), pos, state);
@@ -83,9 +137,32 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
     }
 
     public void setHeldItem(ItemStack stack) {
-        heldItem = stack;
+        heldItem = stack.copy();
+        if (!heldItem.isEmpty()) {
+            heldItem.setCount(1);
+        }
         setChanged();
         sendData();
+    }
+
+    @Override
+    public void invalidateCaps() {
+        super.invalidateCaps();
+        weaponHandlerCap.invalidate();
+    }
+
+    @Override
+    public void reviveCaps() {
+        super.reviveCaps();
+        weaponHandlerCap = LazyOptional.of(() -> weaponHandler);
+    }
+
+    @Override
+    public <T> LazyOptional<T> getCapability(Capability<T> cap, @Nullable Direction side) {
+        if (cap == ForgeCapabilities.ITEM_HANDLER) {
+            return weaponHandlerCap.cast();
+        }
+        return super.getCapability(cap, side);
     }
 
     public void setConnectedFireControl(BlockPos pos) {
@@ -155,7 +232,7 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
     }
 
     protected double getAttackRange() {
-        return Mth.clamp(Math.floor(Math.abs(getSpeed()) / 4.0), 4, 64);
+        return Mth.clamp(Math.floor(Math.abs(getSpeed())/2.0), 4, 64);
     }
 
     protected Vec3 getMuzzlePos() {
@@ -278,7 +355,7 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
     private static int fireBow(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, LivingEntity target, @Nullable IItemHandler ammoHandler) {
         ItemStack ammo = extractFromHandler(ammoHandler, stack -> stack.getItem() instanceof ArrowItem);
         if (ammo.isEmpty()) {
-            return 10;
+            return 20;
         }
         Vec3 baseAim = target.position().subtract(muzzlePos);
         float yaw = yawFromMotion(baseAim);
@@ -305,7 +382,7 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
         level.addFreshEntity(arrow);
         weapon.hurtAndBreak(1, fakePlayer, p -> {});
         level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z, SoundEvents.SKELETON_SHOOT, SoundSource.BLOCKS, 1.0f, 1.0f / (fakePlayer.getRandom().nextFloat() * 0.4F + 0.8F));
-        return 20;
+        return 5;
     }
 
     private static int fireCrossbow(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, LivingEntity target, @Nullable IItemHandler ammoHandler) {
@@ -328,7 +405,7 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
             if (ammo.is(Items.FIREWORK_ROCKET)) {
                 FireworkRocketEntity rocket = new FireworkRocketEntity(level, ammo.copyWithCount(1), muzzlePos.x, muzzlePos.y, muzzlePos.z, true);
                 rocket.setOwner(fakePlayer);
-                rocket.shoot(targetX, targetY + targetRadius * 0.2F, targetZ, 1.6F, 0.0F);
+                rocket.shoot(targetX, targetY, targetZ, 1.6F, 0.0F);
                 level.addFreshEntity(rocket);
                 continue;
             }

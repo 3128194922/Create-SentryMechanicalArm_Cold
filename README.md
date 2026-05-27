@@ -1,16 +1,21 @@
 # CreateSentryArm
 
-`Minecraft 1.20.1 Forge` 模组工程。
+`Minecraft 1.20.1 Forge` 模组工程。本MOD完全由AI编写，完全抄的Create-SentryMechanicalArm。相关代码遵循代码来源的协议。
 
 ## 说明
 
 本项目**完全仿照** `Create-SentryMechanicalArm-1.20.1-0.3.0` 的思路实现，但去掉了第三方枪械依赖，改为围绕 `Create` 与原版武器体系制作攻击机械臂。
 
 ## 参考MOD
+完全借用代码
 https://github.com/Aupoex/Create-SentryMechanicalArm
 
+射箭逻辑
 https://github.com/MarkusBordihn/BOs-Easy-NPC
+
+药水抛物线
 https://github.com/Mercurows/SuperbWarfare
+
 
 ## 当前实现方向
 
@@ -23,8 +28,6 @@ https://github.com/Mercurows/SuperbWarfare
   - 烟花弩
   - 喷溅药水
   - 滞留药水
-  - 剑
-  - 斧头
   - `Create` 土豆炮
 - 固定方块模式下：
   - 武器装在机械臂上
