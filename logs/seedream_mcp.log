@@ -1,0 +1,5 @@
+2026-05-28 09:28:47 | INFO     | Seedream_MCP.utils.logging:setup_logging:97 - 日志系统初始化完成，级别: INFO
+2026-05-28 09:28:47 | INFO     | Seedream_MCP.utils.logging:setup_logging:99 - 日志文件: logs\seedream_mcp.log
+2026-05-28 09:28:47 | INFO     | logging:callHandlers:1706 - 启动Seedream MCP服务器...
+2026-05-28 09:28:47 | INFO     | logging:callHandlers:1706 - Seedream客户端初始化成功
+2026-05-28 09:28:47 | INFO     | logging:callHandlers:1706 - Processing request of type ListToolsRequest

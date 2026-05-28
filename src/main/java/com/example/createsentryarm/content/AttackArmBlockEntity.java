@@ -18,6 +18,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.ItemTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -353,73 +354,133 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
     }
 
     private static int fireBow(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, LivingEntity target, @Nullable IItemHandler ammoHandler) {
-        ItemStack ammo = extractFromHandler(ammoHandler, stack -> stack.getItem() instanceof ArrowItem);
-        if (ammo.isEmpty()) {
-            return 20;
-        }
+
+        ItemStack ammo = extractFromHandler(ammoHandler,
+                stack -> stack.getItem() instanceof ArrowItem ||
+                        stack.is(ItemTags.create(new ResourceLocation("minecraft", "firework")))
+        );
+
+        if (ammo.isEmpty()) return 20;
+
+        boolean isFirework = ammo.is(ItemTags.create(new ResourceLocation("minecraft", "firework")));
+
         Vec3 baseAim = target.position().subtract(muzzlePos);
         float yaw = yawFromMotion(baseAim);
         float pitch = pitchFromMotion(baseAim);
+
         var fakePlayer = ArmFakePlayer.sync(level, pos, muzzlePos, yaw, pitch, weapon);
+
         AbstractArrow arrow = net.minecraft.world.entity.projectile.ProjectileUtil.getMobArrow(fakePlayer, ammo, 1.0f);
         arrow.setPos(muzzlePos.x, muzzlePos.y, muzzlePos.z);
-        double targetX = target.getX() - muzzlePos.x;
-        double targetY = target.getY(0.3333333333333333D) - arrow.getY();
-        double targetZ = target.getZ() - muzzlePos.z;
-        double targetRadius = Math.sqrt(targetX * targetX + targetZ * targetZ);
-        arrow.shoot(targetX, targetY + targetRadius * 0.2F, targetZ, 1.6F, 14.0F - level.getDifficulty().getId() * 4);
+
+        double dx = target.getX() - muzzlePos.x;
+        double dy = target.getY(0.3333333333333D) - muzzlePos.y;
+        double dz = target.getZ() - muzzlePos.z;
+        double horizontal = Math.sqrt(dx * dx + dz * dz);
+
+        // 🔑 核心：是否使用提前量
+        if (!isFirework) {
+            dy += horizontal * 0.2F; // 抛物线补偿（Skeleton算法）
+        }
+
+        arrow.shoot(dx, dy, dz, 1.6F, 0.0F);
+
         int power = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.POWER_ARROWS, weapon);
-        if (power > 0) {
-            arrow.setBaseDamage(arrow.getBaseDamage() + power * 0.5 + 0.5);
-        }
+        if (power > 0) arrow.setBaseDamage(arrow.getBaseDamage() + power * 0.5 + 0.5);
+
         int punch = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.PUNCH_ARROWS, weapon);
-        if (punch > 0) {
-            arrow.setKnockback(punch);
-        }
-        if (EnchantmentHelper.getItemEnchantmentLevel(Enchantments.FLAMING_ARROWS, weapon) > 0) {
+        if (punch > 0) arrow.setKnockback(punch);
+
+        if (EnchantmentHelper.getItemEnchantmentLevel(Enchantments.FLAMING_ARROWS, weapon) > 0)
             arrow.setSecondsOnFire(5);
-        }
+
         level.addFreshEntity(arrow);
         weapon.hurtAndBreak(1, fakePlayer, p -> {});
-        level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z, SoundEvents.SKELETON_SHOOT, SoundSource.BLOCKS, 1.0f, 1.0f / (fakePlayer.getRandom().nextFloat() * 0.4F + 0.8F));
-        return 5;
+
+        level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z,
+                SoundEvents.SKELETON_SHOOT, SoundSource.BLOCKS, 1.0f,
+                1.0f / (fakePlayer.getRandom().nextFloat() * 0.4F + 0.8F));
+
+        return 20;
     }
 
     private static int fireCrossbow(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon, LivingEntity target, @Nullable IItemHandler ammoHandler) {
-        ItemStack ammo = extractFromHandler(ammoHandler, stack -> stack.getItem() instanceof ArrowItem || stack.is(Items.FIREWORK_ROCKET));
-        if (ammo.isEmpty()) {
-            return 10;
-        }
+
+        ItemStack ammo = extractFromHandler(ammoHandler,
+                stack -> stack.getItem() instanceof ArrowItem ||
+                        stack.is(Items.FIREWORK_ROCKET) ||
+                        stack.is(ItemTags.create(new ResourceLocation("minecraft", "firework")))
+        );
+
+        if (ammo.isEmpty()) return 10;
+
+        // ✅ 两种“烟花”概念彻底拆分
+        boolean isVanillaFirework = ammo.is(Items.FIREWORK_ROCKET); // 原版烟花
+        boolean isNoGravityArrow = !isVanillaFirework &&
+                ammo.is(ItemTags.create(new ResourceLocation("minecraft", "firework"))); // 无下坠箭
+
         Vec3 baseAim = target.position().subtract(muzzlePos);
         float yaw = yawFromMotion(baseAim);
         float pitch = pitchFromMotion(baseAim);
+
         var fakePlayer = ArmFakePlayer.sync(level, pos, muzzlePos, yaw, pitch, weapon);
-        double targetX = target.getX() - muzzlePos.x;
-        double targetY = target.getY(0.3333333333333333D) - muzzlePos.y;
-        double targetZ = target.getZ() - muzzlePos.z;
-        double targetRadius = Math.sqrt(targetX * targetX + targetZ * targetZ);
+
+        double dx = target.getX() - muzzlePos.x;
+        double dy = target.getY(0.3333333333333D) - muzzlePos.y;
+        double dz = target.getZ() - muzzlePos.z;
+        double horizontal = Math.sqrt(dx * dx + dz * dz);
+
         int multishot = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.MULTISHOT, weapon) > 0 ? 3 : 1;
         int piercing = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.PIERCING, weapon);
 
         for (int i = 0; i < multishot; i++) {
-            if (ammo.is(Items.FIREWORK_ROCKET)) {
-                FireworkRocketEntity rocket = new FireworkRocketEntity(level, ammo.copyWithCount(1), muzzlePos.x, muzzlePos.y, muzzlePos.z, true);
+
+            // 🎇 ===== 原版烟花（FireworkRocketEntity）=====
+            if (isVanillaFirework) {
+                FireworkRocketEntity rocket = new FireworkRocketEntity(
+                        level,
+                        ammo.copyWithCount(1),
+                        muzzlePos.x, muzzlePos.y, muzzlePos.z,
+                        true
+                );
+
                 rocket.setOwner(fakePlayer);
-                rocket.shoot(targetX, targetY, targetZ, 1.6F, 0.0F);
+
+                // 🚀 烟花直射（无提前量）
+                rocket.shoot(dx, dy, dz, 1.6F, 0.0F);
+
                 level.addFreshEntity(rocket);
                 continue;
             }
 
+            // 🏹 ===== 所有箭（普通箭 + firework tag箭）=====
             AbstractArrow arrow = net.minecraft.world.entity.projectile.ProjectileUtil.getMobArrow(fakePlayer, ammo, 1.0f);
+
             arrow.setOwner(fakePlayer);
             arrow.pickup = AbstractArrow.Pickup.DISALLOWED;
             arrow.setPos(muzzlePos.x, muzzlePos.y, muzzlePos.z);
             arrow.setPierceLevel((byte) piercing);
-            arrow.shoot(targetX, targetY + targetRadius * 0.2F, targetZ, 1.6F, 0.0F);
+
+            if (isNoGravityArrow) {
+                // 🚀 无下坠箭（直线）
+                arrow.setNoGravity(true);
+                arrow.shoot(dx, dy, dz, 1.6F, 0.0F);
+            } else {
+                // 🎯 普通箭（抛物线提前量，Skeleton算法）
+                arrow.shoot(dx, dy + horizontal * 0.2F, dz, 1.6F, 0.0F);
+            }
+
             level.addFreshEntity(arrow);
         }
+
+        // 🔧 耐久
         weapon.hurtAndBreak(1, fakePlayer, p -> {});
-        level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z, SoundEvents.CROSSBOW_SHOOT, SoundSource.BLOCKS, 1.0f, 1.0f);
+
+        // 🔊 声音
+        level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z,
+                SoundEvents.CROSSBOW_SHOOT, SoundSource.BLOCKS, 1.0f, 1.0f);
+
+        // ⚡ 快速装填
         int quickCharge = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.QUICK_CHARGE, weapon);
         return Math.max(6, 25 - quickCharge * 5);
     }
