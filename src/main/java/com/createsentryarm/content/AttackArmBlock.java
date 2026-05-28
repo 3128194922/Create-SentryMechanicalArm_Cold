@@ -1,6 +1,6 @@
-package com.example.createsentryarm.content;
+package com.createsentryarm.content;
 
-import com.example.createsentryarm.CreateSentryArmMod;
+import com.createsentryarm.CreateSentryArmMod;
 import com.simibubi.create.AllShapes;
 import com.simibubi.create.content.equipment.potatoCannon.PotatoCannonItem;
 import com.simibubi.create.content.kinetics.base.KineticBlock;

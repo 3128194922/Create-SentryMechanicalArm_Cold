@@ -1,7 +1,7 @@
-package com.example.createsentryarm.client;
+package com.createsentryarm.client;
 
-import com.example.createsentryarm.content.FireControlMenu;
-import com.example.createsentryarm.network.CSANetwork;
+import com.createsentryarm.content.FireControlMenu;
+import com.createsentryarm.network.CSANetwork;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.simibubi.create.foundation.gui.AllGuiTextures;
 import com.simibubi.create.foundation.gui.AllIcons;

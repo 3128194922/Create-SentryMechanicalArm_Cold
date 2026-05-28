@@ -1,4 +1,4 @@
-package com.example.createsentryarm.content;
+package com.createsentryarm.content;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;

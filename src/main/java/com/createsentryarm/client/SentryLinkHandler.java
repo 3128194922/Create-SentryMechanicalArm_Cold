@@ -1,8 +1,9 @@
-package com.example.createsentryarm.client;
+package com.createsentryarm.client;
 
-import com.example.createsentryarm.content.AttackArmBlockEntity;
-import com.example.createsentryarm.content.BlazeFireControlBlockEntity;
-import com.example.createsentryarm.network.CSANetwork;
+import com.createsentryarm.compat.SentryCompat;
+import com.createsentryarm.content.AttackArmBlockEntity;
+import com.createsentryarm.content.BlazeFireControlBlockEntity;
+import com.createsentryarm.network.CSANetwork;
 import net.createmod.catnip.outliner.Outliner;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -49,8 +50,9 @@ public class SentryLinkHandler {
         }
         Level level = event.getLevel();
         BlockPos pos = event.getPos();
-        boolean isArm = level.getBlockEntity(pos) instanceof AttackArmBlockEntity;
-        boolean isControl = level.getBlockEntity(pos) instanceof BlazeFireControlBlockEntity;
+        net.minecraft.world.level.block.entity.BlockEntity be = level.getBlockEntity(pos);
+        boolean isArm = be instanceof AttackArmBlockEntity || SentryCompat.isSentryArm(be);
+        boolean isControl = be instanceof BlazeFireControlBlockEntity || SentryCompat.isSentryFireControl(be);
         if (!isArm && !isControl) {
             return;
         }
@@ -99,8 +101,9 @@ public class SentryLinkHandler {
             HitResult hit = mc.hitResult;
             if (hit instanceof BlockHitResult blockHit) {
                 BlockPos hovered = blockHit.getBlockPos();
-                boolean isArm = level.getBlockEntity(hovered) instanceof AttackArmBlockEntity;
-                boolean isControl = level.getBlockEntity(hovered) instanceof BlazeFireControlBlockEntity;
+                net.minecraft.world.level.block.entity.BlockEntity hoveredBe = level.getBlockEntity(hovered);
+                boolean isArm = hoveredBe instanceof AttackArmBlockEntity || SentryCompat.isSentryArm(hoveredBe);
+                boolean isControl = hoveredBe instanceof BlazeFireControlBlockEntity || SentryCompat.isSentryFireControl(hoveredBe);
                 if (!hovered.equals(firstSelectedPos) && (isArm || isControl)) {
                     boolean validPair = (firstIsArm && isControl) || (!firstIsArm && isArm);
                     int color = validPair ? 0xFFCB74 : 0xFF7171;

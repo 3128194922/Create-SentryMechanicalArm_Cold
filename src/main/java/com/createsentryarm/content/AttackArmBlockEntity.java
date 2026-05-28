@@ -1,7 +1,8 @@
-package com.example.createsentryarm.content;
+package com.createsentryarm.content;
 
-import com.example.createsentryarm.CreateSentryArmMod;
-import com.example.createsentryarm.util.ArmFakePlayer;
+import com.createsentryarm.CreateSentryArmMod;
+import com.createsentryarm.compat.SentryCompat;
+import com.createsentryarm.util.ArmFakePlayer;
 import com.simibubi.create.api.equipment.potatoCannon.PotatoCannonProjectileType;
 import com.simibubi.create.content.equipment.potatoCannon.PotatoProjectileEntity;
 import com.simibubi.create.content.equipment.potatoCannon.PotatoCannonItem;
@@ -245,19 +246,27 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
         if (connectedFireControlPos == null || level == null) {
             return TargetFilter.DEFAULT_ALL;
         }
-        BlockEntity be = level.getBlockEntity(connectedFireControlPos);
-        if (!(be instanceof BlazeFireControlBlockEntity fireControl)) {
-            disconnectFireControl();
-            return TargetFilter.DEFAULT_ALL;
-        }
         if (connectedFireControlPos.distSqr(worldPosition) > 36.0) {
             disconnectFireControl();
             return TargetFilter.DEFAULT_ALL;
         }
-        if (fireControl.inventory.getStackInSlot(0).isEmpty()) {
+        BlockEntity be = level.getBlockEntity(connectedFireControlPos);
+        if (be == null) {
+            disconnectFireControl();
             return TargetFilter.DEFAULT_ALL;
         }
-        return new TargetFilter(true, fireControl.isWhitelist(), fireControl.getTargetList());
+        if (be instanceof BlazeFireControlBlockEntity fireControl) {
+            if (fireControl.inventory.getStackInSlot(0).isEmpty()) {
+                return TargetFilter.DEFAULT_ALL;
+            }
+            return new TargetFilter(true, fireControl.isWhitelist(), fireControl.getTargetList());
+        }
+        SentryCompat.SentryFilterData sentryData = SentryCompat.readFireControlData(be);
+        if (sentryData != null) {
+            return new TargetFilter(true, sentryData.whitelist(), new ArrayList<>(sentryData.targets()));
+        }
+        disconnectFireControl();
+        return TargetFilter.DEFAULT_ALL;
     }
 
     public static LivingEntity findTarget(net.minecraft.world.level.Level level, Vec3 muzzlePos, double range, TargetFilter filter, @Nullable Entity excluded) {
@@ -287,7 +296,7 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
         ResourceLocation typeId = net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getKey(entity.getType());
         String name = entity.getName().getString();
         boolean listed = filter.targets.contains(name) || (typeId != null && filter.targets.contains(typeId.toString()));
-        return filter.whitelist ? listed : !listed;
+        return filter.whitelist ? !listed : listed;
     }
 
     public static Vec3 getBestTargetPos(net.minecraft.world.level.Level level, Vec3 muzzlePos, LivingEntity target) {

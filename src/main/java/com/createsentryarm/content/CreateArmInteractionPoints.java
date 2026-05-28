@@ -1,6 +1,6 @@
-package com.example.createsentryarm.content;
+package com.createsentryarm.content;
 
-import com.example.createsentryarm.CreateSentryArmMod;
+import com.createsentryarm.CreateSentryArmMod;
 import com.simibubi.create.api.registry.CreateBuiltInRegistries;
 import com.simibubi.create.content.kinetics.mechanicalArm.ArmInteractionPoint;
 import com.simibubi.create.content.kinetics.mechanicalArm.ArmInteractionPointType;

@@ -1,6 +1,6 @@
-package com.example.createsentryarm.content;
+package com.createsentryarm.content;
 
-import com.example.createsentryarm.client.AttackArmRenderer;
+import com.createsentryarm.client.AttackArmRenderer;
 import com.simibubi.create.api.behaviour.movement.MovementBehaviour;
 import com.simibubi.create.content.contraptions.AbstractContraptionEntity;
 import com.simibubi.create.content.contraptions.behaviour.MovementContext;

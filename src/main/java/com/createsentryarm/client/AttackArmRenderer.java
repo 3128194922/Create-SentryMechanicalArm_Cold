@@ -1,8 +1,8 @@
-package com.example.createsentryarm.client;
+package com.createsentryarm.client;
 
-import com.example.createsentryarm.content.AttackArmBlock;
-import com.example.createsentryarm.content.AttackArmBlockEntity;
-import com.example.createsentryarm.content.VirtualAttackArmBlockEntity;
+import com.createsentryarm.content.AttackArmBlock;
+import com.createsentryarm.content.AttackArmBlockEntity;
+import com.createsentryarm.content.VirtualAttackArmBlockEntity;
 import com.simibubi.create.AllPartialModels;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntityRenderer;
 import com.simibubi.create.content.kinetics.mechanicalArm.ArmRenderer;

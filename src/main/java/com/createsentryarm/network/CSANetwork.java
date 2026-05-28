@@ -1,8 +1,10 @@
-package com.example.createsentryarm.network;
+package com.createsentryarm.network;
 
-import com.example.createsentryarm.CreateSentryArmMod;
-import com.example.createsentryarm.content.AttackArmBlockEntity;
-import com.example.createsentryarm.content.FireControlClipboardItem;
+import com.createsentryarm.CreateSentryArmMod;
+import com.createsentryarm.compat.SentryCompat;
+import com.createsentryarm.content.AttackArmBlockEntity;
+import com.createsentryarm.content.BlazeFireControlBlockEntity;
+import com.createsentryarm.content.FireControlClipboardItem;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
@@ -107,10 +109,17 @@ public class CSANetwork {
                     player.displayClientMessage(Component.literal("火控距离过远"), true);
                     return;
                 }
-                if (player.level().getBlockEntity(packet.first) instanceof AttackArmBlockEntity arm) {
-                    arm.setConnectedFireControl(packet.second);
-                } else if (player.level().getBlockEntity(packet.second) instanceof AttackArmBlockEntity arm) {
-                    arm.setConnectedFireControl(packet.first);
+                net.minecraft.world.level.block.entity.BlockEntity be1 = player.level().getBlockEntity(packet.first);
+                net.minecraft.world.level.block.entity.BlockEntity be2 = player.level().getBlockEntity(packet.second);
+
+                if (be1 instanceof AttackArmBlockEntity arm) {
+                    if (be2 instanceof BlazeFireControlBlockEntity || SentryCompat.isSentryFireControl(be2)) {
+                        arm.setConnectedFireControl(packet.second);
+                    }
+                } else if (be2 instanceof AttackArmBlockEntity arm) {
+                    if (be1 instanceof BlazeFireControlBlockEntity || SentryCompat.isSentryFireControl(be1)) {
+                        arm.setConnectedFireControl(packet.first);
+                    }
                 }
             });
             ctx.get().setPacketHandled(true);

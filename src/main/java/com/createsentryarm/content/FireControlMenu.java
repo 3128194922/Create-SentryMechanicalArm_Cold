@@ -1,6 +1,6 @@
-package com.example.createsentryarm.content;
+package com.createsentryarm.content;
 
-import com.example.createsentryarm.CreateSentryArmMod;
+import com.createsentryarm.CreateSentryArmMod;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;

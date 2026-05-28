@@ -1,19 +1,19 @@
-package com.example.createsentryarm;
+package com.createsentryarm;
 
-import com.example.createsentryarm.client.BlazeFireControlRenderer;
-import com.example.createsentryarm.client.CreateSentryArmClient;
-import com.example.createsentryarm.client.FireControlScreen;
-import com.example.createsentryarm.client.SentryLinkHandler;
-import com.example.createsentryarm.content.AttackArmBlock;
-import com.example.createsentryarm.content.AttackArmBlockEntity;
-import com.example.createsentryarm.content.AttackArmMovementBehaviour;
-import com.example.createsentryarm.content.BlazeFireControlBlock;
-import com.example.createsentryarm.content.BlazeFireControlBlockEntity;
-import com.example.createsentryarm.content.CreateArmInteractionPoints;
-import com.example.createsentryarm.content.FireControlClipboardItem;
-import com.example.createsentryarm.content.FireControlMenu;
-import com.example.createsentryarm.content.FireControlMovementBehaviour;
-import com.example.createsentryarm.network.CSANetwork;
+import com.createsentryarm.client.BlazeFireControlRenderer;
+import com.createsentryarm.client.CreateSentryArmClient;
+import com.createsentryarm.client.FireControlScreen;
+import com.createsentryarm.client.SentryLinkHandler;
+import com.createsentryarm.content.AttackArmBlock;
+import com.createsentryarm.content.AttackArmBlockEntity;
+import com.createsentryarm.content.AttackArmMovementBehaviour;
+import com.createsentryarm.content.BlazeFireControlBlock;
+import com.createsentryarm.content.BlazeFireControlBlockEntity;
+import com.createsentryarm.content.CreateArmInteractionPoints;
+import com.createsentryarm.content.FireControlClipboardItem;
+import com.createsentryarm.content.FireControlMenu;
+import com.createsentryarm.content.FireControlMovementBehaviour;
+import com.createsentryarm.network.CSANetwork;
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.api.behaviour.movement.MovementBehaviour;
 import net.minecraft.client.gui.screens.MenuScreens;
@@ -74,7 +74,7 @@ public class CreateSentryArmMod {
     public static final RegistryObject<CreativeModeTab> TAB = CREATIVE_TABS.register("main",
             () -> CreativeModeTab.builder()
                     .withTabsBefore(CreativeModeTabs.COMBAT)
-                    .title(net.minecraft.network.chat.Component.literal("Create Sentry Arm"))
+                    .title(net.minecraft.network.chat.Component.literal("Create:SentryArm_Cold"))
                     .icon(() -> ATTACK_ARM_ITEM.get().getDefaultInstance())
                     .displayItems((parameters, output) -> {
                         output.accept(ATTACK_ARM_ITEM.get());

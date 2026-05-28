@@ -1,6 +1,6 @@
-package com.example.createsentryarm.client;
+package com.createsentryarm.client;
 
-import com.example.createsentryarm.content.BlazeFireControlBlockEntity;
+import com.createsentryarm.content.BlazeFireControlBlockEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.simibubi.create.AllPartialModels;
 import com.simibubi.create.content.processing.burner.BlazeBurnerBlock;

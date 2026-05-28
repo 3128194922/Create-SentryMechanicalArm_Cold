@@ -1,4 +1,4 @@
-package com.example.createsentryarm.util;
+package com.createsentryarm.util;
 
 import com.mojang.authlib.GameProfile;
 import net.minecraft.core.BlockPos;

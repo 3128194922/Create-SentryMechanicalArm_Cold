@@ -1,6 +1,6 @@
-package com.example.createsentryarm.client;
+package com.createsentryarm.client;
 
-import com.example.createsentryarm.content.AttackArmBlockEntity;
+import com.createsentryarm.content.AttackArmBlockEntity;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 
 public class CreateSentryArmClient {

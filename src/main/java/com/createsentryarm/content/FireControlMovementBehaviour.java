@@ -1,5 +1,6 @@
-package com.example.createsentryarm.content;
+package com.createsentryarm.content;
 
+import com.createsentryarm.compat.SentryCompat;
 import com.simibubi.create.api.behaviour.movement.MovementBehaviour;
 import com.simibubi.create.content.contraptions.behaviour.MovementContext;
 import com.simibubi.create.content.contraptions.render.ContraptionMatrices;
@@ -68,6 +69,10 @@ public class FireControlMovementBehaviour implements MovementBehaviour {
             MovementContext other = pair.getRight();
             if (other.temporaryData instanceof FireControlData data && !data.displayItem.isEmpty()) {
                 return new AttackArmBlockEntity.TargetFilter(true, data.whitelist, new ArrayList<>(data.targets));
+            }
+            SentryCompat.SentryFilterData sentryData = SentryCompat.readFromBlockEntityData(other.blockEntityData);
+            if (sentryData != null) {
+                return new AttackArmBlockEntity.TargetFilter(true, sentryData.whitelist(), new ArrayList<>(sentryData.targets()));
             }
         }
         return AttackArmBlockEntity.TargetFilter.DEFAULT_ALL;
