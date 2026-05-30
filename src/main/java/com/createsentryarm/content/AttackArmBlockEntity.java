@@ -1,7 +1,9 @@
 package com.createsentryarm.content;
 
 import com.createsentryarm.CreateSentryArmMod;
+import com.createsentryarm.compat.ScorcherCompat;
 import com.createsentryarm.compat.SentryCompat;
+import com.createsentryarm.entity.FlameProjectileEntity;
 import com.createsentryarm.util.ArmFakePlayer;
 import com.simibubi.create.api.equipment.potatoCannon.PotatoCannonProjectileType;
 import com.simibubi.create.content.equipment.potatoCannon.PotatoProjectileEntity;
@@ -67,8 +69,20 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
     private ItemStack heldItem = ItemStack.EMPTY;
     private int attackCooldown;
     private int syncedTargetId = -1;
+    private int scorcherLastTargetId = -1; // Track target changes for scorcher reset
     private BlockPos connectedFireControlPos;
     public ScrollValueBehaviour rangeScroll;
+
+    // Scorcher flamethrower phase state machine
+    // 0=IDLE, 1=STARTUP (activation delay), 2=FIRING (continuous flames)
+    private int scorcherPhase = 0;
+    private int scorcherPhaseTimer = 0;
+    private int scorcherFuelTicks = 0;
+    private boolean scorcherIsSoul = false;
+
+    private static final int SCORCHER_STARTUP_TICKS = 20; // ~1 second activation delay
+    private static final int SCORCHER_MAX_FIRING_TICKS = 120; // ~6 seconds max continuous firing
+
     private final IItemHandler weaponHandler = new IItemHandler() {
         @Override
         public int getSlots() {
@@ -198,6 +212,13 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
             attackCooldown--;
         }
         if (Math.abs(getSpeed()) < 1 || heldItem.isEmpty()) {
+            // Reset scorcher state if arm stops or weapon is removed
+            if (scorcherPhase > 0) {
+                scorcherPhase = 0;
+                scorcherPhaseTimer = 0;
+                scorcherFuelTicks = 0;
+                setChanged();
+            }
             idlePose();
             return;
         }
@@ -220,7 +241,26 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
         aimAtAngle(yawPitch[0], yawPitch[1]);
 
         if (!level.isClientSide && attackCooldown <= 0) {
-            attackCooldown = performAttack((ServerLevel) level, worldPosition, muzzlePos, heldItem, target, yawPitch[0], yawPitch[1], getBelowHandler((ServerLevel) level, worldPosition));
+            ServerLevel serverLevel = (ServerLevel) level;
+            IItemHandler ammoHandler = getBelowHandler(serverLevel, worldPosition);
+
+            if (scorcherPhase > 0) {
+                // Reset scorcher if target changed (e.g., previous target died)
+                if (scorcherLastTargetId != target.getId()) {
+                    scorcherPhase = 0;
+                    scorcherPhaseTimer = 0;
+                    scorcherFuelTicks = 0;
+                    attackCooldown = 5;
+                } else {
+                    // Scorcher state machine is active (startup or firing)
+                    attackCooldown = tickScorcherPhase(serverLevel, muzzlePos, heldItem, target, ammoHandler);
+                }
+            } else if (ScorcherCompat.isScorcher(heldItem) && !heldItem.isEmpty()) {
+                // Start scorcher attack with startup phase
+                attackCooldown = startScorcherFiring(serverLevel, muzzlePos, heldItem, target, ammoHandler);
+            } else {
+                attackCooldown = performAttack(serverLevel, worldPosition, muzzlePos, heldItem, target, yawPitch[0], yawPitch[1], ammoHandler);
+            }
             setChanged();
             sendData();
         }
@@ -358,6 +398,9 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
         }
         if (weapon.getItem() instanceof PotatoCannonItem) {
             return firePotatoCannon(level, pos, muzzlePos, weapon, yaw, pitch, ammoHandler);
+        }
+        if (ScorcherCompat.isScorcher(weapon)) {
+            return fireScorcher(level, pos, muzzlePos, weapon, target, ammoHandler);
         }
         return 10;
     }
@@ -553,6 +596,168 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
         return Math.max(6, typeRef.get().value().reloadTicks());
     }
 
+    // ========== Scorcher flamethrower state machine ==========
+
+    /**
+     * Initialize the scorcher flamethrower: extract fuel, enter STARTUP phase.
+     * Called once when the attack arm first decides to use the scorcher.
+     */
+    private int startScorcherFiring(ServerLevel level, Vec3 muzzlePos, ItemStack weapon,
+                                     LivingEntity target, @Nullable IItemHandler ammoHandler) {
+        ItemStack fuel = extractFromHandler(ammoHandler,
+                stack -> stack.is(Items.COAL) || stack.is(Items.CHARCOAL));
+
+        if (fuel.isEmpty()) {
+            return 20; // No fuel available, short cooldown before retry
+        }
+
+        scorcherIsSoul = ScorcherCompat.isSoulScorcher(weapon);
+        scorcherFuelTicks = fuel.is(Items.COAL) ? 30 : 20;
+        scorcherPhase = 1; // STARTUP
+        scorcherPhaseTimer = SCORCHER_STARTUP_TICKS;
+        scorcherLastTargetId = target.getId();
+
+        // Play startup sound
+        level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z,
+                net.minecraft.sounds.SoundEvents.FIRECHARGE_USE,
+                net.minecraft.sounds.SoundSource.BLOCKS, 0.6F, 0.8F);
+
+        return 1; // Check next tick
+    }
+
+    /**
+     * Handle scorcher phase transitions: STARTUP → FIRING → IDLE.
+     * Called every tick while scorcherPhase > 0 and a target is locked.
+     */
+    private int tickScorcherPhase(ServerLevel level, Vec3 muzzlePos, ItemStack weapon,
+                                   LivingEntity target, @Nullable IItemHandler ammoHandler) {
+        if (scorcherPhase == 1) { // STARTUP phase
+            scorcherPhaseTimer--;
+            if (scorcherPhaseTimer <= 0) {
+                // Transition to FIRING
+                scorcherPhase = 2;
+                scorcherPhaseTimer = SCORCHER_MAX_FIRING_TICKS;
+                // Play firing start sound
+                level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z,
+                        net.minecraft.sounds.SoundEvents.BLAZE_SHOOT,
+                        net.minecraft.sounds.SoundSource.BLOCKS, 0.8F, 0.5F);
+            }
+            return 1;
+        }
+
+        if (scorcherPhase == 2) { // FIRING phase - shoot flame every tick
+            // Refuel if needed
+            if (scorcherFuelTicks <= 0) {
+                ItemStack fuel = extractFromHandler(ammoHandler,
+                        stack -> stack.is(Items.COAL) || stack.is(Items.CHARCOAL));
+                if (fuel.isEmpty()) {
+                    // Out of fuel — stop firing
+                    scorcherPhase = 0;
+                    return 10;
+                }
+                scorcherFuelTicks = fuel.is(Items.COAL) ? 30 : 20;
+            }
+
+            // Shoot flame every tick (high frequency, matching DNL behavior)
+            shootScorcherFlame(level, muzzlePos, weapon, target);
+            scorcherFuelTicks--;
+            scorcherPhaseTimer--;
+
+            if (scorcherPhaseTimer <= 0) {
+                // Max firing duration reached — forced cooldown (overheat)
+                scorcherPhase = 0;
+                return 20;
+            }
+
+            return 1; // Continue firing next tick
+        }
+
+        // Unknown state, reset
+        scorcherPhase = 0;
+        return 10;
+    }
+
+    /**
+     * Shoot a single flame projectile from the scorcher.
+     * Called every tick during the FIRING phase.
+     */
+    private void shootScorcherFlame(ServerLevel level, Vec3 muzzlePos, ItemStack weapon, LivingEntity target) {
+        Vec3 aim = target.position().add(0, target.getBbHeight() * 0.5, 0).subtract(muzzlePos).normalize();
+
+        double spread = 0.5;
+        double spreadX = (level.random.nextDouble() - 0.5) * spread;
+        double spreadY = (level.random.nextDouble() - 0.5) * spread;
+        double spreadZ = (level.random.nextDouble() - 0.5) * spread;
+        aim = aim.add(spreadX, spreadY, spreadZ).normalize();
+
+        float yaw = yawFromMotion(aim);
+        float pitch = pitchFromMotion(aim);
+        var fakePlayer = ArmFakePlayer.sync(level, worldPosition, muzzlePos, yaw, pitch, weapon);
+
+        FlameProjectileEntity flame = new FlameProjectileEntity(fakePlayer, level);
+        flame.setOwner(fakePlayer);
+        flame.setPos(muzzlePos.x, muzzlePos.y, muzzlePos.z);
+        flame.setDamage(scorcherIsSoul ? 5.0F : 4.0F);
+        flame.setSoul(scorcherIsSoul);
+        flame.setDeltaMovement(aim.scale(0.4));
+
+        level.addFreshEntity(flame);
+
+        // Damage weapon durability every 20 ticks (1 second) of firing
+        if (scorcherPhaseTimer % 20 == 0) {
+            weapon.hurtAndBreak(1, fakePlayer, p -> {});
+        }
+
+        // Play flame sound periodically (not every tick to avoid spam)
+        if (scorcherPhaseTimer % 5 == 0) {
+            level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z,
+                    net.minecraft.sounds.SoundEvents.FIRECHARGE_USE,
+                    net.minecraft.sounds.SoundSource.BLOCKS, 0.4F,
+                    0.5F + level.random.nextFloat() * 0.5F);
+        }
+    }
+
+    // ========== Legacy static fireScorcher (kept for potential external callers) ==========
+
+    private static int fireScorcher(ServerLevel level, BlockPos pos, Vec3 muzzlePos, ItemStack weapon,
+                                     LivingEntity target, @Nullable IItemHandler ammoHandler) {
+        ItemStack fuel = extractFromHandler(ammoHandler,
+                stack -> stack.is(Items.COAL) || stack.is(Items.CHARCOAL));
+
+        if (fuel.isEmpty()) return 20;
+
+        boolean isSoul = ScorcherCompat.isSoulScorcher(weapon);
+        int burnTime = fuel.is(Items.COAL) ? 30 : 20;
+
+        Vec3 aim = target.position().add(0, target.getBbHeight() * 0.5, 0).subtract(muzzlePos).normalize();
+
+        double spread = 0.5;
+        double spreadX = (level.random.nextDouble() - 0.5) * spread;
+        double spreadY = (level.random.nextDouble() - 0.5) * spread;
+        double spreadZ = (level.random.nextDouble() - 0.5) * spread;
+        aim = aim.add(spreadX, spreadY, spreadZ).normalize();
+
+        float yaw = yawFromMotion(aim);
+        float pitch = pitchFromMotion(aim);
+        var fakePlayer = ArmFakePlayer.sync(level, pos, muzzlePos, yaw, pitch, weapon);
+
+        FlameProjectileEntity flame = new FlameProjectileEntity(fakePlayer, level);
+        flame.setOwner(fakePlayer);
+        flame.setPos(muzzlePos.x, muzzlePos.y, muzzlePos.z);
+        flame.setDamage(isSoul ? 5.0F : 4.0F);
+        flame.setSoul(isSoul);
+        flame.setDeltaMovement(aim.scale(0.4));
+
+        level.addFreshEntity(flame);
+
+        weapon.hurtAndBreak(1, fakePlayer, p -> {});
+        level.playSound(null, muzzlePos.x, muzzlePos.y, muzzlePos.z,
+                net.minecraft.sounds.SoundEvents.FIRECHARGE_USE,
+                net.minecraft.sounds.SoundSource.BLOCKS, 0.8F, 1.0F);
+
+        return burnTime;
+    }
+
     private static Vec3 directMotion(float yaw, float pitch, double speed) {
         return Vec3.directionFromRotation(pitch, yaw).scale(speed);
     }
@@ -700,6 +905,12 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
         tag.putFloat("LowerAngle", lowerArmAngle.getValue());
         tag.putFloat("UpperAngle", upperArmAngle.getValue());
         tag.putFloat("HeadAngle", headAngle.getValue());
+        // Scorcher state machine
+        tag.putInt("ScorcherPhase", scorcherPhase);
+        tag.putInt("ScorcherPhaseTimer", scorcherPhaseTimer);
+        tag.putInt("ScorcherFuelTicks", scorcherFuelTicks);
+        tag.putBoolean("ScorcherIsSoul", scorcherIsSoul);
+        tag.putInt("ScorcherLastTargetId", scorcherLastTargetId);
         if (connectedFireControlPos != null) {
             tag.put("FireControlPos", NbtUtils.writeBlockPos(connectedFireControlPos));
         }
@@ -715,6 +926,12 @@ public class AttackArmBlockEntity extends KineticBlockEntity {
         lowerArmAngle.setValue(tag.getFloat("LowerAngle"));
         upperArmAngle.setValue(tag.getFloat("UpperAngle"));
         headAngle.setValue(tag.getFloat("HeadAngle"));
+        // Scorcher state machine
+        scorcherPhase = tag.getInt("ScorcherPhase");
+        scorcherPhaseTimer = tag.getInt("ScorcherPhaseTimer");
+        scorcherFuelTicks = tag.getInt("ScorcherFuelTicks");
+        scorcherIsSoul = tag.getBoolean("ScorcherIsSoul");
+        scorcherLastTargetId = tag.getInt("ScorcherLastTargetId");
         connectedFireControlPos = tag.contains("FireControlPos") ? NbtUtils.readBlockPos(tag.getCompound("FireControlPos")) : null;
     }
 
