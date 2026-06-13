@@ -67,12 +67,12 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
             modeButton.setIcon(AllIcons.I_WHITELIST);
             modeButton.setToolTip(Component.literal("白名单")
                     .append("\n")
-                    .append(Component.literal("仅攻击列表内目标").withStyle(ChatFormatting.GRAY)));
+                    .append(Component.literal("不攻击列表").withStyle(ChatFormatting.GRAY)));
         } else {
             modeButton.setIcon(AllIcons.I_BLACKLIST);
             modeButton.setToolTip(Component.literal("黑名单")
                     .append("\n")
-                    .append(Component.literal("攻击未在列表中的目标").withStyle(ChatFormatting.GRAY)));
+                    .append(Component.literal("攻击列表").withStyle(ChatFormatting.GRAY)));
         }
     }
 

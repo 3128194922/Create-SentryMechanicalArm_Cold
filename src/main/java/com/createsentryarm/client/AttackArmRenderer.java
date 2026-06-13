@@ -5,10 +5,10 @@ import com.createsentryarm.content.AttackArmBlockEntity;
 import com.createsentryarm.content.VirtualAttackArmBlockEntity;
 import com.simibubi.create.AllPartialModels;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntityRenderer;
-import com.simibubi.create.content.kinetics.mechanicalArm.ArmRenderer;
 import com.simibubi.create.content.contraptions.behaviour.MovementContext;
 import com.simibubi.create.content.contraptions.render.ContraptionMatrices;
 import com.simibubi.create.foundation.virtualWorld.VirtualRenderWorld;
+import dev.engine_room.flywheel.lib.transform.PoseTransformStack;
 import dev.engine_room.flywheel.lib.transform.TransformStack;
 import net.createmod.catnip.data.Iterate;
 import net.createmod.catnip.render.CachedBuffers;
@@ -64,11 +64,11 @@ public class AttackArmRenderer extends KineticBlockEntityRenderer<AttackArmBlock
         VertexConsumer builder = buffer.getBuffer(RenderType.solid());
         BlockState blockState = be.getBlockState();
         PoseStack localStack = new PoseStack();
-        TransformStack transform = TransformStack.of(localStack);
+        PoseTransformStack transform = TransformStack.of(localStack);
 
         float baseAngle = be.baseAngle.getValue(partialTicks);
-        float lowerArmAngle = be.lowerArmAngle.getValue(partialTicks) - 135;
-        float upperArmAngle = be.upperArmAngle.getValue(partialTicks) - 90;
+        float lowerArmAngle = be.lowerArmAngle.getValue(partialTicks) - 135.0F;
+        float upperArmAngle = be.upperArmAngle.getValue(partialTicks) - 90.0F;
         float headAngle = be.headAngle.getValue(partialTicks);
         boolean inverted = blockState.getValue(AttackArmBlock.CEILING);
 
@@ -102,16 +102,16 @@ public class AttackArmRenderer extends KineticBlockEntityRenderer<AttackArmBlock
         SuperByteBuffer upperClawGrip = CachedBuffers.partial(AllPartialModels.ARM_CLAW_GRIP_UPPER, state).light(light);
         SuperByteBuffer lowerClawGrip = CachedBuffers.partial(AllPartialModels.ARM_CLAW_GRIP_LOWER, state).light(light);
 
-        ArmRenderer.transformBase(transform, baseAngle);
+        transformBase(transform, baseAngle);
         base.transform(localStack).renderInto(poseStack, builder);
 
-        ArmRenderer.transformLowerArm(transform, lowerArmAngle);
+        transformLowerArm(transform, lowerArmAngle);
         lowerBody.transform(localStack).renderInto(poseStack, builder);
 
-        ArmRenderer.transformUpperArm(transform, upperArmAngle);
+        transformUpperArm(transform, upperArmAngle);
         upperBody.transform(localStack).renderInto(poseStack, builder);
 
-        ArmRenderer.transformHead(transform, headAngle);
+        transformHead(transform, headAngle);
         if (inverted) {
             transform.rotateZDegrees(180);
         }
@@ -122,10 +122,34 @@ public class AttackArmRenderer extends KineticBlockEntityRenderer<AttackArmBlock
 
         for (int flip : Iterate.positiveAndNegative) {
             localStack.pushPose();
-            ArmRenderer.transformClawHalf(transform, hasItem, isBlockItem, flip);
+            transformClawHalf(transform, hasItem, isBlockItem, flip);
             (flip > 0 ? lowerClawGrip : upperClawGrip).transform(localStack).renderInto(poseStack, builder);
             localStack.popPose();
         }
+    }
+
+    private static void transformBase(TransformStack msr, float baseAngle) {
+        msr.translate(0.0F, 0.25F, 0.0F);
+        msr.rotateYDegrees(baseAngle);
+    }
+
+    private static void transformLowerArm(TransformStack msr, float lowerArmAngle) {
+        msr.translate(0.0F, 0.125F, 0.0F);
+        msr.rotateXDegrees(lowerArmAngle + 135.0F);
+    }
+
+    private static void transformUpperArm(TransformStack msr, float upperArmAngle) {
+        msr.translate(0.0F, 0.0F, -0.875F);
+        msr.rotateXDegrees(upperArmAngle - 90.0F);
+    }
+
+    private static void transformHead(TransformStack msr, float headAngle) {
+        msr.translate(0.0F, 0.0F, -0.9375F);
+        msr.rotateXDegrees(headAngle - 45.0F);
+    }
+
+    private static void transformClawHalf(TransformStack msr, boolean hasItem, boolean isBlockItem, int flip) {
+        msr.translate(0.0F, -flip * (hasItem ? (isBlockItem ? 0.1875F : 0.078125F) : 0.0625F), -0.375F);
     }
 
     @Override
@@ -134,22 +158,42 @@ public class AttackArmRenderer extends KineticBlockEntityRenderer<AttackArmBlock
     }
 
     public static void renderInContraption(MovementContext context, VirtualRenderWorld renderWorld, ContraptionMatrices matrices, MultiBufferSource buffer) {
-        if (!(context.temporaryData instanceof VirtualAttackArmBlockEntity virtualBE)) {
-            return;
+        if (context.temporaryData == null || !(context.temporaryData instanceof VirtualAttackArmBlockEntity)) {
+            VirtualAttackArmBlockEntity newBE = new VirtualAttackArmBlockEntity(context.localPos, context.state);
+            if (context.blockEntityData != null) {
+                if (context.blockEntityData.contains("HeldItem")) {
+                    newBE.setHeldItem(ItemStack.of(context.blockEntityData.getCompound("HeldItem")));
+                }
+                if (context.blockEntityData.contains("BaseAngle")) {
+                    newBE.baseAngle.setValue(context.blockEntityData.getFloat("BaseAngle"));
+                }
+                if (context.blockEntityData.contains("LowerAngle")) {
+                    newBE.lowerArmAngle.setValue(context.blockEntityData.getFloat("LowerAngle"));
+                }
+                if (context.blockEntityData.contains("UpperAngle")) {
+                    newBE.upperArmAngle.setValue(context.blockEntityData.getFloat("UpperAngle"));
+                }
+                if (context.blockEntityData.contains("HeadAngle")) {
+                    newBE.headAngle.setValue(context.blockEntityData.getFloat("HeadAngle"));
+                }
+                if (context.blockEntityData.contains("Speed")) {
+                    newBE.setSpeed(context.blockEntityData.getFloat("Speed"));
+                }
+            }
+            context.temporaryData = newBE;
         }
+        VirtualAttackArmBlockEntity virtualBE = (VirtualAttackArmBlockEntity) context.temporaryData;
         BlockState blockState = context.state;
         float partialTicks = net.createmod.catnip.animation.AnimationTickHolder.getPartialTicks();
         float baseAngle = virtualBE.baseAngle.getValue(partialTicks);
-        float lowerArmAngle = virtualBE.lowerArmAngle.getValue(partialTicks) - 135;
-        float upperArmAngle = virtualBE.upperArmAngle.getValue(partialTicks) - 90;
+        float lowerArmAngle = virtualBE.lowerArmAngle.getValue(partialTicks) - 135.0F;
+        float upperArmAngle = virtualBE.upperArmAngle.getValue(partialTicks) - 90.0F;
         float headAngle = virtualBE.headAngle.getValue(partialTicks);
         boolean inverted = blockState.getValue(AttackArmBlock.CEILING);
         int light = LightTexture.FULL_BRIGHT;
-        var localPos = net.createmod.catnip.math.VecHelper.getCenterOf(context.localPos);
-        var globalPos = context.contraption.entity != null
-                ? context.contraption.entity.toGlobalVector(localPos, partialTicks)
-                : localPos;
         if (context.contraption.entity != null) {
+            var localPos = net.createmod.catnip.math.VecHelper.getCenterOf(context.localPos);
+            var globalPos = context.contraption.entity.toGlobalVector(localPos, partialTicks);
             light = LevelRenderer.getLightColor(context.world, BlockPos.containing(globalPos));
         }
 
@@ -158,57 +202,80 @@ public class AttackArmRenderer extends KineticBlockEntityRenderer<AttackArmBlock
         boolean isBlockItem = hasItem && Minecraft.getInstance().getItemRenderer().getModel(heldItem, renderWorld, null, 0).isGui3d();
 
         VertexConsumer builder = buffer.getBuffer(RenderType.solid());
-        PoseStack poseStack = matrices.getModel();
-        TransformStack transform = TransformStack.of(poseStack);
-        poseStack.pushPose();
-        transform.center();
+        PoseStack ms = matrices.getModel();
+        PoseTransformStack msr = TransformStack.of(ms);
+        ms.pushPose();
+        msr.center();
         if (inverted) {
-            transform.rotateXDegrees(180);
+            msr.rotateXDegrees(180);
         }
 
-        float kineticAngle = KineticBlockEntityRenderer.getAngleForBe(virtualBE, BlockPos.containing(globalPos), Direction.Axis.Y);
-        CachedBuffers.partial(AllPartialModels.ARM_COG, blockState)
+        ms.pushPose();
+        transformBase(msr, baseAngle);
+        CachedBuffers.partial(AllPartialModels.ARM_BASE, blockState)
                 .light(light)
-                .rotateCentered(kineticAngle, Direction.UP)
+                .transform(ms)
+                .renderInto(matrices.getViewProjection(), builder);
+        ms.popPose();
+
+        ms.pushPose();
+        transformBase(msr, baseAngle);
+        transformLowerArm(msr, lowerArmAngle);
+        CachedBuffers.partial(AllPartialModels.ARM_LOWER_BODY, blockState)
+                .light(light)
+                .transform(ms)
                 .renderInto(matrices.getViewProjection(), builder);
 
-        SuperByteBuffer base = CachedBuffers.partial(AllPartialModels.ARM_BASE, blockState).light(light);
-        SuperByteBuffer lowerBody = CachedBuffers.partial(AllPartialModels.ARM_LOWER_BODY, blockState).light(light);
-        SuperByteBuffer upperBody = CachedBuffers.partial(AllPartialModels.ARM_UPPER_BODY, blockState).light(light);
-        SuperByteBuffer claw = CachedBuffers.partial(AllPartialModels.ARM_CLAW_BASE, blockState).light(light);
-        SuperByteBuffer upperClawGrip = CachedBuffers.partial(AllPartialModels.ARM_CLAW_GRIP_UPPER, blockState).light(light);
-        SuperByteBuffer lowerClawGrip = CachedBuffers.partial(AllPartialModels.ARM_CLAW_GRIP_LOWER, blockState).light(light);
+        transformUpperArm(msr, upperArmAngle);
+        CachedBuffers.partial(AllPartialModels.ARM_UPPER_BODY, blockState)
+                .light(light)
+                .transform(ms)
+                .renderInto(matrices.getViewProjection(), builder);
 
-        ArmRenderer.transformBase(transform, baseAngle);
-        base.transform(poseStack).renderInto(matrices.getViewProjection(), builder);
-        ArmRenderer.transformLowerArm(transform, lowerArmAngle);
-        lowerBody.transform(poseStack).renderInto(matrices.getViewProjection(), builder);
-        ArmRenderer.transformUpperArm(transform, upperArmAngle);
-        upperBody.transform(poseStack).renderInto(matrices.getViewProjection(), builder);
-        ArmRenderer.transformHead(transform, headAngle);
-        if (inverted) {
-            transform.rotateZDegrees(180);
-        }
-        claw.transform(poseStack).renderInto(matrices.getViewProjection(), builder);
-        if (inverted) {
-            transform.rotateZDegrees(180);
-        }
+        transformHead(msr, headAngle);
+        if (inverted) msr.rotateZDegrees(180);
+        CachedBuffers.partial(AllPartialModels.ARM_CLAW_BASE, blockState)
+                .light(light)
+                .transform(ms)
+                .renderInto(matrices.getViewProjection(), builder);
+
         for (int flip : Iterate.positiveAndNegative) {
-            poseStack.pushPose();
-            ArmRenderer.transformClawHalf(transform, hasItem, isBlockItem, flip);
-            (flip > 0 ? lowerClawGrip : upperClawGrip).transform(poseStack).renderInto(matrices.getViewProjection(), builder);
-            poseStack.popPose();
+            ms.pushPose();
+            transformClawHalf(msr, hasItem, isBlockItem, flip);
+            SuperByteBuffer grip = CachedBuffers.partial(
+                    flip > 0 ? AllPartialModels.ARM_CLAW_GRIP_LOWER : AllPartialModels.ARM_CLAW_GRIP_UPPER,
+                    blockState);
+            grip.light(light)
+                    .transform(ms)
+                    .renderInto(matrices.getViewProjection(), builder);
+            ms.popPose();
         }
+        ms.popPose();
+
+        ms.pushPose();
+        msr.uncenter();
+        msr.center();
+        float speed = virtualBE.getSpeed();
+        float time = net.createmod.catnip.animation.AnimationTickHolder.getRenderTime();
+        float cogAngle = (time * speed * 3f / 10f) % 360;
+        ms.mulPose(com.mojang.math.Axis.YP.rotationDegrees(cogAngle));
+        msr.uncenter();
+        CachedBuffers.partial(AllPartialModels.ARM_COG, blockState)
+                .light(light)
+                .transform(ms)
+                .renderInto(matrices.getViewProjection(), builder);
+        ms.popPose();
 
         if (hasItem) {
-            poseStack.pushPose();
+            ms.pushPose();
             float itemScale = isBlockItem ? .5f : .625f;
-            transform.rotateXDegrees(90);
-            poseStack.translate(0, isBlockItem ? -9 / 16f : -10 / 16f, 0);
-            poseStack.scale(itemScale, itemScale, itemScale);
-            Minecraft.getInstance().getItemRenderer().renderStatic(heldItem, ItemDisplayContext.FIXED, light, 0, poseStack, buffer, renderWorld, 0);
-            poseStack.popPose();
+            msr.rotateXDegrees(90);
+            ms.translate(0, isBlockItem ? -9 / 16f : -10 / 16f, 0);
+            ms.scale(itemScale, itemScale, itemScale);
+            Minecraft.getInstance().getItemRenderer().renderStatic(heldItem, ItemDisplayContext.FIXED, light, 0, ms, buffer, renderWorld, 0);
+            ms.popPose();
         }
-        poseStack.popPose();
+
+        ms.popPose();
     }
 }

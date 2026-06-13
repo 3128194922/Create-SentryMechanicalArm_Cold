@@ -11,8 +11,8 @@ import net.minecraftforge.registries.ForgeRegistries;
  */
 public final class ScorcherCompat {
     public static final String DNL_MODID = "dungeonnowloading";
-    private static final ResourceLocation SCORCHER_ID = ResourceLocation.fromNamespaceAndPath(DNL_MODID, "scorcher");
-    private static final ResourceLocation SOUL_SCORCHER_ID = ResourceLocation.fromNamespaceAndPath(DNL_MODID, "soul_scorcher");
+    private static final ResourceLocation SCORCHER_ID = new ResourceLocation(DNL_MODID, "scorcher");
+    private static final ResourceLocation SOUL_SCORCHER_ID = new ResourceLocation(DNL_MODID, "soul_scorcher");
 
     private ScorcherCompat() {}
 
