@@ -169,6 +169,7 @@ public class CreateSentryArmMod {
                 if (FIRE_CONTROL_ENABLED) {
                     net.minecraft.client.renderer.blockentity.BlockEntityRenderers.register(BLAZE_FIRE_CONTROL_BE.get(), BlazeFireControlRenderer::new);
                     MenuScreens.register(FIRE_CONTROL_MENU.get(), FireControlScreen::new);
+                    FireControlMovementBehaviour.CLIENT_PLAYER = () -> net.minecraft.client.Minecraft.getInstance().player;
                 }
             });
         }

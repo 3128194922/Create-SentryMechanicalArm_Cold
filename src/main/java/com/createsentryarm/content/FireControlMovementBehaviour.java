@@ -12,12 +12,12 @@ import net.createmod.catnip.animation.AnimationTickHolder;
 import net.createmod.catnip.animation.LerpedFloat;
 import net.createmod.catnip.math.AngleHelper;
 import net.createmod.catnip.math.VecHelper;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
@@ -27,8 +27,10 @@ import org.apache.commons.lang3.tuple.MutablePair;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 
 public class FireControlMovementBehaviour implements MovementBehaviour {
+    public static Supplier<Entity> CLIENT_PLAYER = () -> null;
     public static class FireControlData {
         public boolean whitelist;
         public ItemStack displayItem = ItemStack.EMPTY;
@@ -100,7 +102,7 @@ public class FireControlMovementBehaviour implements MovementBehaviour {
     }
 
     private static float getTargetAngle(MovementContext context) {
-        var player = Minecraft.getInstance().player;
+        var player = CLIENT_PLAYER.get();
         if (player != null && !player.isInvisible()
                 && context.contraption != null && context.contraption.entity != null) {
             Vec3 worldPos = context.contraption.entity.toGlobalVector(
