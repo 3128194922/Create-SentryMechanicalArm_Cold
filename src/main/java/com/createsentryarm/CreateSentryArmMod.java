@@ -3,7 +3,6 @@ package com.createsentryarm;
 import com.createsentryarm.client.BlazeFireControlRenderer;
 import com.createsentryarm.client.CreateSentryArmClient;
 import com.createsentryarm.client.FireControlScreen;
-import com.createsentryarm.client.FlameProjectileRenderer;
 import com.createsentryarm.client.SentryLinkHandler;
 import com.createsentryarm.content.AttackArmBlock;
 import com.createsentryarm.content.AttackArmBlockEntity;
@@ -14,7 +13,6 @@ import com.createsentryarm.content.CreateArmInteractionPoints;
 import com.createsentryarm.content.FireControlClipboardItem;
 import com.createsentryarm.content.FireControlMenu;
 import com.createsentryarm.content.FireControlMovementBehaviour;
-import com.createsentryarm.entity.FlameProjectileEntity;
 import com.createsentryarm.network.CSANetwork;
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.api.behaviour.movement.MovementBehaviour;
@@ -23,8 +21,6 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
@@ -33,7 +29,6 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModList;
@@ -60,8 +55,6 @@ public class CreateSentryArmMod {
             DeferredRegister.create(ForgeRegistries.MENU_TYPES, MODID);
     public static final DeferredRegister<CreativeModeTab> CREATIVE_TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MODID);
-    public static final DeferredRegister<EntityType<?>> ENTITY_TYPES =
-            DeferredRegister.create(ForgeRegistries.ENTITY_TYPES, MODID);
 
     public static final RegistryObject<Block> ATTACK_ARM = BLOCKS.register("attack_arm",
             () -> new AttackArmBlock(Block.Properties.of().strength(3.0F).noOcclusion()));
@@ -77,18 +70,10 @@ public class CreateSentryArmMod {
     public static RegistryObject<Item> FIRE_CONTROL_CLIPBOARD;
     public static RegistryObject<MenuType<FireControlMenu>> FIRE_CONTROL_MENU;
 
-    public static final RegistryObject<EntityType<FlameProjectileEntity>> FLAME_PROJECTILE =
-            ENTITY_TYPES.register("flame_projectile",
-                    () -> EntityType.Builder.<FlameProjectileEntity>of(FlameProjectileEntity::new, MobCategory.MISC)
-                            .sized(0.25F, 0.25F)
-                            .clientTrackingRange(64)
-                            .updateInterval(10)
-                            .build(MODID + ":flame_projectile"));
-
     public static final RegistryObject<CreativeModeTab> TAB = CREATIVE_TABS.register("main",
             () -> CreativeModeTab.builder()
                     .withTabsBefore(CreativeModeTabs.COMBAT)
-                    .title(net.minecraft.network.chat.Component.literal("Create:SentryArm_Cold"))
+                    .title(net.minecraft.network.chat.Component.translatable("itemGroup.createsentryarm.main"))
                     .icon(() -> ATTACK_ARM_ITEM.get().getDefaultInstance())
                     .displayItems((parameters, output) -> {
                         output.accept(ATTACK_ARM_ITEM.get());
@@ -108,14 +93,9 @@ public class CreateSentryArmMod {
         BLOCK_ENTITY_TYPES.register(modBus);
         MENUS.register(modBus);
         CREATIVE_TABS.register(modBus);
-        ENTITY_TYPES.register(modBus);
 
         modBus.addListener(this::commonSetup);
-        modBus.addListener(this::addCreative);
         MinecraftForge.EVENT_BUS.register(this);
-        if (FIRE_CONTROL_ENABLED) {
-            MinecraftForge.EVENT_BUS.register(SentryLinkHandler.class);
-        }
     }
 
     private static void registerConditionalEntries() {
@@ -145,16 +125,6 @@ public class CreateSentryArmMod {
         });
     }
 
-    private void addCreative(BuildCreativeModeTabContentsEvent event) {
-        if (event.getTabKey() == CreativeModeTabs.REDSTONE_BLOCKS) {
-            event.accept(ATTACK_ARM_ITEM.get());
-            if (FIRE_CONTROL_ENABLED) {
-                event.accept(BLAZE_FIRE_CONTROL_ITEM.get());
-                event.accept(FIRE_CONTROL_CLIPBOARD.get());
-            }
-        }
-    }
-
     public static ResourceLocation id(String path) {
         return new ResourceLocation(MODID, path);
     }
@@ -165,7 +135,6 @@ public class CreateSentryArmMod {
         public static void onClientSetup(FMLClientSetupEvent event) {
             event.enqueueWork(() -> {
                 net.minecraft.client.renderer.blockentity.BlockEntityRenderers.register(ATTACK_ARM_BE.get(), CreateSentryArmClient::createAttackArmRenderer);
-                net.minecraft.client.renderer.entity.EntityRenderers.register(FLAME_PROJECTILE.get(), FlameProjectileRenderer::new);
                 if (FIRE_CONTROL_ENABLED) {
                     net.minecraft.client.renderer.blockentity.BlockEntityRenderers.register(BLAZE_FIRE_CONTROL_BE.get(), BlazeFireControlRenderer::new);
                     MenuScreens.register(FIRE_CONTROL_MENU.get(), FireControlScreen::new);

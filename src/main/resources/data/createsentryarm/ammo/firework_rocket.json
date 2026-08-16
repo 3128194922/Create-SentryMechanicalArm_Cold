@@ -1,0 +1,13 @@
+{
+  "item": "minecraft:firework_rocket",
+  "range": 40,
+  "allow_high_arc": false,
+  "speed": 1.6,
+  "gravity": 0.0,
+  "no_gravity": true,
+  "drag": 0.99,
+  "aim_height": 1.0,
+  "lead": 1.0,
+  "spread": 0.0,
+  "turn_speed": 1.0
+}

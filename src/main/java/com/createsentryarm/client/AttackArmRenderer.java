@@ -1,5 +1,6 @@
 package com.createsentryarm.client;
 
+import com.createsentryarm.CreateSentryArmMod;
 import com.createsentryarm.content.AttackArmBlock;
 import com.createsentryarm.content.AttackArmBlockEntity;
 import com.createsentryarm.content.VirtualAttackArmBlockEntity;
@@ -239,9 +240,14 @@ public class AttackArmRenderer extends KineticBlockEntityRenderer<AttackArmBlock
                 .transform(ms)
                 .renderInto(matrices.getViewProjection(), builder);
 
+        org.joml.Matrix4f clawTipWorldMatrix = null;
         for (int flip : Iterate.positiveAndNegative) {
             ms.pushPose();
             transformClawHalf(msr, hasItem, isBlockItem, flip);
+            if (flip > 0 && hasItem) {
+                clawTipWorldMatrix = new org.joml.Matrix4f(matrices.getWorld());
+                clawTipWorldMatrix.mul(ms.last().pose());
+            }
             SuperByteBuffer grip = CachedBuffers.partial(
                     flip > 0 ? AllPartialModels.ARM_CLAW_GRIP_LOWER : AllPartialModels.ARM_CLAW_GRIP_UPPER,
                     blockState);
@@ -266,16 +272,60 @@ public class AttackArmRenderer extends KineticBlockEntityRenderer<AttackArmBlock
                 .renderInto(matrices.getViewProjection(), builder);
         ms.popPose();
 
-        if (hasItem) {
-            ms.pushPose();
-            float itemScale = isBlockItem ? .5f : .625f;
-            msr.rotateXDegrees(90);
-            ms.translate(0, isBlockItem ? -9 / 16f : -10 / 16f, 0);
-            ms.scale(itemScale, itemScale, itemScale);
-            Minecraft.getInstance().getItemRenderer().renderStatic(heldItem, ItemDisplayContext.FIXED, light, 0, ms, buffer, renderWorld, 0);
-            ms.popPose();
+        if (hasItem && clawTipWorldMatrix != null) {
+            renderHeldItemInContraption(heldItem, renderWorld, light, clawTipWorldMatrix, isBlockItem);
         }
 
         ms.popPose();
+    }
+
+    private static void renderHeldItemInContraption(ItemStack heldItem, VirtualRenderWorld renderWorld, int light,
+                                                    org.joml.Matrix4f clawTipWorldMatrix, boolean isBlockItem) {
+        PoseStack itemStack = new PoseStack();
+        itemStack.last().pose().set(clawTipWorldMatrix);
+        itemStack.mulPose(com.mojang.math.Axis.XP.rotationDegrees(90.0F));
+        itemStack.translate(0.0F, isBlockItem ? -0.5625F : -0.625F, 0.0F);
+        float itemScale = isBlockItem ? 0.5F : 0.625F;
+        itemStack.scale(itemScale, itemScale, itemScale);
+
+        org.joml.Matrix4f finalMatrix = itemStack.last().pose();
+        org.joml.Vector4f worldPos = new org.joml.Vector4f(0, 0, 0, 1);
+        finalMatrix.transform(worldPos);
+        org.joml.Quaternionf worldRot = new org.joml.Quaternionf();
+        finalMatrix.getUnnormalizedRotation(worldRot);
+
+        net.minecraft.client.Camera camera = Minecraft.getInstance().gameRenderer.getMainCamera();
+        net.minecraft.world.phys.Vec3 cameraPos = camera.getPosition();
+        double renderX = worldPos.x() - cameraPos.x;
+        double renderY = worldPos.y() - cameraPos.y;
+        double renderZ = worldPos.z() - cameraPos.z;
+
+        org.joml.Vector4f viewDelta = new org.joml.Vector4f((float) renderX, (float) renderY, (float) renderZ, 1.0f);
+        org.joml.Matrix4f cameraRotMat = new org.joml.Matrix4f();
+        cameraRotMat.rotate(com.mojang.math.Axis.XP.rotationDegrees(camera.getXRot()));
+        cameraRotMat.rotate(com.mojang.math.Axis.YP.rotationDegrees(camera.getYRot() + 180.0F));
+        cameraRotMat.transform(viewDelta);
+
+        PoseStack viewStack = new PoseStack();
+        viewStack.translate(viewDelta.x(), viewDelta.y(), viewDelta.z());
+        org.joml.Quaternionf cameraRot = new org.joml.Quaternionf();
+        cameraRotMat.getUnnormalizedRotation(cameraRot);
+        cameraRot.mul(worldRot);
+        viewStack.mulPose(cameraRot);
+
+        MultiBufferSource.BufferSource cleanBuffer = Minecraft.getInstance().renderBuffers().bufferSource();
+        try {
+            Minecraft.getInstance().getItemRenderer().renderStatic(heldItem, ItemDisplayContext.FIXED, light,
+                    net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY, viewStack, cleanBuffer, renderWorld, 0);
+            cleanBuffer.endBatch();
+        } catch (Exception e) {
+            CreateSentryArmMod.LOGGER.error("Failed to render held item on contraption", e);
+        } finally {
+            com.mojang.blaze3d.systems.RenderSystem.depthMask(true);
+            com.mojang.blaze3d.systems.RenderSystem.enableDepthTest();
+            com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+            com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
+            com.mojang.blaze3d.systems.RenderSystem.enableCull();
+        }
     }
 }

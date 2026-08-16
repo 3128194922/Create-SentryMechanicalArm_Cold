@@ -1,0 +1,12 @@
+{
+  "item": "minecraft:splash_potion",
+  "range": 20,
+  "range_high": 40,
+  "speed": 2.5,
+  "gravity": 0.05,
+  "drag": 0.99,
+  "aim_height": 1.0,
+  "lead": 1.0,
+  "spread": 0.0,
+  "turn_speed": 1.0
+}

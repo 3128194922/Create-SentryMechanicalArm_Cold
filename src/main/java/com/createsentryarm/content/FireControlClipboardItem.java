@@ -1,5 +1,6 @@
 package com.createsentryarm.content;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -41,7 +42,7 @@ public class FireControlClipboardItem extends Item {
                 openClipboardGui(player, stack);
             }
         }
-        return InteractionResultHolder.success(stack);
+        return InteractionResultHolder.consume(stack);
     }
 
     @Override
@@ -50,9 +51,13 @@ public class FireControlClipboardItem extends Item {
             return InteractionResult.PASS;
         }
         if (!context.getLevel().isClientSide) {
-            openClipboardGui(context.getPlayer(), context.getItemInHand());
+            if (context.getPlayer().isShiftKeyDown()) {
+                addTarget(context.getItemInHand(), context.getPlayer().getName().getString(), context.getPlayer());
+            } else {
+                openClipboardGui(context.getPlayer(), context.getItemInHand());
+            }
         }
-        return InteractionResult.SUCCESS;
+        return InteractionResult.CONSUME;
     }
 
     @Override
@@ -69,7 +74,7 @@ public class FireControlClipboardItem extends Item {
         NetworkHooks.openScreen((ServerPlayer) player, new MenuProvider() {
             @Override
             public Component getDisplayName() {
-                return Component.literal("火控剪贴板");
+                return Component.translatable("item.createsentryarm.fire_control_clipboard");
             }
 
             @Nullable
@@ -90,11 +95,24 @@ public class FireControlClipboardItem extends Item {
     @Override
     public void appendHoverText(ItemStack stack, @Nullable Level level, List<Component> tooltipComponents, TooltipFlag flag) {
         super.appendHoverText(stack, level, tooltipComponents, flag);
-        boolean whitelist = stack.getOrCreateTag().getBoolean("WhitelistMode");
-        tooltipComponents.add(Component.literal("模式: " + (whitelist ? "白名单" : "黑名单")));
-        tooltipComponents.add(Component.literal("右键打开火控界面"));
-        tooltipComponents.add(Component.literal("潜行右键把自己加入列表"));
-        tooltipComponents.add(Component.literal("对生物右键把目标加入列表"));
+        CompoundTag tag = stack.getTag();
+        boolean whitelist = tag != null && tag.getBoolean("WhitelistMode");
+
+        if (whitelist) {
+            tooltipComponents.add(Component.translatable("tooltip.createsentryarm.clipboard.mode").withStyle(ChatFormatting.GRAY)
+                    .append(Component.translatable("gui.createsentryarm.clipboard.whitelist").withStyle(ChatFormatting.AQUA)));
+            tooltipComponents.add(Component.translatable("tooltip.createsentryarm.clipboard.whitelist_des_1").withStyle(ChatFormatting.DARK_GRAY));
+            tooltipComponents.add(Component.translatable("tooltip.createsentryarm.clipboard.whitelist_des_2").withStyle(ChatFormatting.DARK_GRAY));
+        } else {
+            tooltipComponents.add(Component.translatable("tooltip.createsentryarm.clipboard.mode").withStyle(ChatFormatting.GRAY)
+                    .append(Component.translatable("gui.createsentryarm.clipboard.blacklist").withStyle(ChatFormatting.RED)));
+            tooltipComponents.add(Component.translatable("tooltip.createsentryarm.clipboard.blacklist_des_1").withStyle(ChatFormatting.DARK_GRAY));
+            tooltipComponents.add(Component.translatable("tooltip.createsentryarm.clipboard.blacklist_des_2").withStyle(ChatFormatting.DARK_GRAY));
+        }
+        tooltipComponents.add(Component.translatable("tooltip.createsentryarm.clipboard.open_gui").withStyle(ChatFormatting.DARK_GRAY));
+        tooltipComponents.add(Component.translatable("tooltip.createsentryarm.clipboard.add_self").withStyle(ChatFormatting.DARK_GRAY));
+        tooltipComponents.add(Component.translatable("tooltip.createsentryarm.clipboard.add_target").withStyle(ChatFormatting.DARK_GRAY));
+        tooltipComponents.add(Component.translatable("tooltip.createsentryarm.clipboard.spyglass").withStyle(ChatFormatting.DARK_GRAY));
     }
 
     public static void addTarget(ItemStack stack, String name, @Nullable Player player) {
@@ -110,10 +128,10 @@ public class FireControlClipboardItem extends Item {
         if (!exists) {
             list.add(StringTag.valueOf(name));
             if (player != null) {
-                player.displayClientMessage(Component.literal("已添加目标: " + name), true);
+                player.displayClientMessage(Component.translatable("message.createsentryarm.target_added", name), true);
             }
         } else if (player != null) {
-            player.displayClientMessage(Component.literal("目标已存在: " + name), true);
+            player.displayClientMessage(Component.translatable("message.createsentryarm.target_exists", name), true);
         }
         tag.put("TargetList", list);
     }

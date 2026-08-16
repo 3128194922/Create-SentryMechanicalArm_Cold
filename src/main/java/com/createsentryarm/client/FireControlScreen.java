@@ -65,14 +65,16 @@ public class FireControlScreen extends AbstractContainerScreen<FireControlMenu> 
     private void updateModeButtonVisuals() {
         if (clientWhitelistState) {
             modeButton.setIcon(AllIcons.I_WHITELIST);
-            modeButton.setToolTip(Component.literal("白名单")
+            modeButton.setToolTip(Component.translatable("gui.createsentryarm.clipboard.whitelist")
                     .append("\n")
-                    .append(Component.literal("不攻击列表").withStyle(ChatFormatting.GRAY)));
+                    .append(Component.translatable("gui.createsentryarm.clipboard.whitelist.description").withStyle(ChatFormatting.GRAY))
+                    .append("\n")
+                    .append(Component.translatable("gui.createsentryarm.clipboard.whitelist.warning").withStyle(ChatFormatting.DARK_RED)));
         } else {
             modeButton.setIcon(AllIcons.I_BLACKLIST);
-            modeButton.setToolTip(Component.literal("黑名单")
+            modeButton.setToolTip(Component.translatable("gui.createsentryarm.clipboard.blacklist")
                     .append("\n")
-                    .append(Component.literal("攻击列表").withStyle(ChatFormatting.GRAY)));
+                    .append(Component.translatable("gui.createsentryarm.clipboard.blacklist.description").withStyle(ChatFormatting.GRAY)));
         }
     }
 

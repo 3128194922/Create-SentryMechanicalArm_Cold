@@ -1,7 +1,6 @@
 package com.createsentryarm.content;
 
 import com.createsentryarm.CreateSentryArmMod;
-import com.createsentryarm.compat.ScorcherCompat;
 import com.simibubi.create.AllShapes;
 import com.simibubi.create.content.equipment.potatoCannon.PotatoCannonItem;
 import com.simibubi.create.content.kinetics.base.KineticBlock;
@@ -129,7 +128,6 @@ public class AttackArmBlock extends KineticBlock implements IBE<AttackArmBlockEn
                 || stack.getItem() instanceof CrossbowItem
                 || stack.getItem() instanceof SplashPotionItem
                 || stack.getItem() instanceof LingeringPotionItem
-                || stack.getItem() instanceof PotatoCannonItem
-                || ScorcherCompat.isScorcher(stack);
+                || stack.getItem() instanceof PotatoCannonItem;
     }
 }

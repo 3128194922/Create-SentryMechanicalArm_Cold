@@ -59,7 +59,9 @@ public class SentryLinkHandler {
         if (firstSelectedPos == null) {
             firstSelectedPos = pos;
             firstIsArm = isArm;
-            player.displayClientMessage(Component.literal(isArm ? "请选择火控方块" : "请选择攻击机械臂"), true);
+            player.displayClientMessage(Component.translatable(isArm
+                    ? "message.createsentryarm.select_fire_control"
+                    : "message.createsentryarm.select_attack_arm"), true);
             event.setCanceled(true);
             event.setCancellationResult(InteractionResult.SUCCESS);
             return;

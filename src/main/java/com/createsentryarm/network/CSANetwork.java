@@ -33,6 +33,7 @@ public class CSANetwork {
         CHANNEL.registerMessage(id++, ToggleClipboardModePacket.class, ToggleClipboardModePacket::encode, ToggleClipboardModePacket::decode, ToggleClipboardModePacket::handle);
         CHANNEL.registerMessage(id++, ClearTargetPacket.class, ClearTargetPacket::encode, ClearTargetPacket::decode, ClearTargetPacket::handle);
         CHANNEL.registerMessage(id++, LinkFireControlPacket.class, LinkFireControlPacket::encode, LinkFireControlPacket::decode, LinkFireControlPacket::handle);
+        CHANNEL.registerMessage(id++, RecordTargetPacket.class, RecordTargetPacket::encode, RecordTargetPacket::decode, RecordTargetPacket::handle);
     }
 
     private static ItemStack getHeldClipboard(ServerPlayer player) {
@@ -106,7 +107,7 @@ public class CSANetwork {
                 ServerPlayer player = ctx.get().getSender();
                 if (player == null) return;
                 if (packet.first.distSqr(packet.second) > 36) {
-                    player.displayClientMessage(Component.literal("火控距离过远"), true);
+                    player.displayClientMessage(Component.translatable("message.createsentryarm.link_too_far"), true);
                     return;
                 }
                 net.minecraft.world.level.block.entity.BlockEntity be1 = player.level().getBlockEntity(packet.first);
@@ -121,6 +122,33 @@ public class CSANetwork {
                         arm.setConnectedFireControl(packet.first);
                     }
                 }
+            });
+            ctx.get().setPacketHandled(true);
+        }
+    }
+
+    public record RecordTargetPacket(int entityId) {
+        public static void encode(RecordTargetPacket packet, FriendlyByteBuf buf) {
+            buf.writeVarInt(packet.entityId);
+        }
+
+        public static RecordTargetPacket decode(FriendlyByteBuf buf) {
+            return new RecordTargetPacket(buf.readVarInt());
+        }
+
+        public static void handle(RecordTargetPacket packet, Supplier<NetworkEvent.Context> ctx) {
+            ctx.get().enqueueWork(() -> {
+                ServerPlayer player = ctx.get().getSender();
+                if (player == null) return;
+                if (player.getMainHandItem().getItem() != net.minecraft.world.item.Items.SPYGLASS
+                        || !(player.getOffhandItem().getItem() instanceof FireControlClipboardItem)) {
+                    return;
+                }
+                net.minecraft.world.entity.Entity target = player.level().getEntity(packet.entityId);
+                if (target == null || target.distanceToSqr(player) >= 65536.0) {
+                    return;
+                }
+                FireControlClipboardItem.addTarget(player.getOffhandItem(), target.getName().getString(), player);
             });
             ctx.get().setPacketHandled(true);
         }
